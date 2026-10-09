@@ -39,4 +39,13 @@ describe('pdf extraction', () => {
     expect(x.pages.map((p) => p.length > 500)).toEqual([true, false, false, false, true, true]);
     expect(x.pages[1]).toBe('.');
   });
+  it('resolves a named-destination outline entry', async () => {
+    const x = await extractPdf(await buildPdf({ pages: ['a', 'b', 'c'], outline: [{ title: 'Named', page: 3, named: true }, { title: 'Direct', page: 2 }] }));
+    expect(x.outline).toEqual([{ title: 'Named', page: 3 }, { title: 'Direct', page: 2 }]);
+  });
+  it('splitPage rejects out-of-range pages', async () => {
+    const bytes = await buildPdf({ pages: ['a', 'b'] });
+    await expect(splitPage(bytes, 0)).rejects.toThrow(/out of range/);
+    await expect(splitPage(bytes, 3)).rejects.toThrow(/out of range/);
+  });
 });

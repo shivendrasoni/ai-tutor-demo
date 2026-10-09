@@ -7,14 +7,14 @@ const WIDTH = 612;
 
 export type BuildPdfOpts = {
   pages: string[];
-  outline?: { title: string; page: number | null }[];
+  outline?: { title: string; page: number | null; named?: boolean }[];
 };
 
 /**
  * Builds a PDF with Helvetica text. Each page string is split on '\n'; a '\n\n' yields one blank
  * line. Lines longer than the page width are word-wrapped (wrapping replaces a space with a line
  * break, so whitespace-collapsed extracted text equals the whitespace-collapsed input).
- * `outline` builds a flat /Outlines tree via the low-level context; `page: null` omits /Dest.
+ * `outline` builds a flat /Outlines tree via the low-level context; `page: null` omits /Dest; `named: true` uses a named destination.
  */
 export async function buildPdf(opts: BuildPdfOpts): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -48,7 +48,17 @@ export async function buildPdf(opts: BuildPdfOpts): Promise<Uint8Array> {
     const itemRefs: PDFRef[] = opts.outline.map(() => ctx.nextRef());
     opts.outline.forEach((o, i) => {
       const d = ctx.obj({ Title: PDFString.of(o.title), Parent: rootRef }) as PDFDict;
-      if (o.page !== null) d.set(PDFName.of('Dest'), ctx.obj([pageRefs[o.page - 1], PDFName.of('Fit')]) as PDFArray);
+      if (o.page !== null) {
+        const dest = ctx.obj([pageRefs[o.page - 1], PDFName.of('Fit')]) as PDFArray;
+        if (o.named) {
+          // named destination: /Dest is a name resolved through the catalog /Dests dictionary
+          const name = `dest-${i}`;
+          let dests = doc.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
+          if (!dests) { dests = ctx.obj({}) as PDFDict; doc.catalog.set(PDFName.of('Dests'), dests); }
+          dests.set(PDFName.of(name), dest);
+          d.set(PDFName.of('Dest'), PDFName.of(name));
+        } else d.set(PDFName.of('Dest'), dest);
+      }
       if (i > 0) d.set(PDFName.of('Prev'), itemRefs[i - 1]);
       if (i < itemRefs.length - 1) d.set(PDFName.of('Next'), itemRefs[i + 1]);
       ctx.assign(itemRefs[i], d);

@@ -50,7 +50,7 @@ export async function extractPdf(bytes: Uint8Array): Promise<ExtractedPdf> {
     }
     return { pageCount: pdf.numPages, outline, pages };
   } finally {
-    await pdf.cleanup();
+    await pdf.loadingTask.destroy();
   }
 }
 

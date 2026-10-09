@@ -16,6 +16,7 @@ import * as joinUsernameRoute from '@/app/api/join/username/route';
 import * as inviteRoute from '@/app/api/invite/[token]/route';
 import * as plansRoute from '@/app/api/plans/route';
 import * as meStatusRoute from '@/app/api/me/status/route';
+import * as meRoute from '@/app/api/me/route';
 import * as studentsRoute from '@/app/api/school/students/route';
 import * as removeRoute from '@/app/api/school/students/[id]/remove/route';
 import * as branchCodeRoute from '@/app/api/school/branches/[id]/code/route';
@@ -238,6 +239,25 @@ describe('me/status', () => {
   it('no cookie / bogus cookie → 401', async () => {
     await expectError(await meStatusRoute.GET(req('GET', '/api/me/status')), 401, 'UNAUTHENTICATED');
     await expectError(await meStatusRoute.GET(req('GET', '/api/me/status', { cookie: 'sid=bogus' })), 401, 'UNAUTHENTICATED');
+  });
+});
+
+describe('me', () => {
+  it('returns name, roles and isPlatformAdmin for a student', async () => {
+    const res = await meRoute.GET(req('GET', '/api/me', { cookie: await loginCookie(seed.a.student.userId) }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ name: 'student A', roles: ['student'], isPlatformAdmin: false });
+  });
+
+  it('returns staff and platform admin identities', async () => {
+    const t = await meRoute.GET(req('GET', '/api/me', { cookie: await sidFor(seed.a.teacher.userId) }));
+    expect(await t.json()).toEqual({ name: 'teacher A', roles: ['teacher'], isPlatformAdmin: false });
+    const p = await meRoute.GET(req('GET', '/api/me', { cookie: await sidFor(seed.platform.userId) }));
+    expect(await p.json()).toEqual({ name: 'Platform Admin', roles: [], isPlatformAdmin: true });
+  });
+
+  it('no cookie → 401', async () => {
+    await expectError(await meRoute.GET(req('GET', '/api/me')), 401, 'UNAUTHENTICATED');
   });
 });
 

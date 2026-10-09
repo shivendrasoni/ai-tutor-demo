@@ -12,7 +12,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "test:isolation": "vitest run tests/isolation",
     "admin": "tsx scripts/admin.ts",
-    "job:lapse": "tsx scripts/lapse.ts"
+    "job:lapse": "tsx scripts/lapse.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",

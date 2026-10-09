@@ -47,3 +47,15 @@ jobs:
       - run: pnpm vitest run
 
       - run: pnpm tsc --noEmit
+
+      # End-to-end runs after vitest (both reset tutor_test, so they must never overlap).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7

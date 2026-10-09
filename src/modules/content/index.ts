@@ -19,3 +19,16 @@ export { setDepsForTest } from './deps';
 export { FakeEmbedder, type Embedder } from './embedder';
 export type { OcrExtractor } from './ocr';
 export { LocalBlobStore, type BlobStore } from './blob';
+export {
+  chunksForChapters,
+  listVisibleChapters,
+  listVisibleSubjects,
+  searchChunks,
+  studentScope,
+  visibleContent,
+  type ChunkHit,
+  type SearchOpts,
+  type StudentScope,
+  type VisibleChapter,
+  type VisibleItem,
+} from './visibility';

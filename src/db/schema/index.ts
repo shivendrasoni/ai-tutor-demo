@@ -1,12 +1,14 @@
 import { branches, sections, subjects } from './tenancy';
 import { memberships, teacherAssignments } from './auth';
+import { chunks, contentChapters, contentExclusions, contentItems } from './content';
 import { invites, payments, studentProfiles, subscriptions } from './enrollment';
 
 export * from './tenancy';
 export * from './auth';
 export * from './enrollment';
+export * from './content';
 
-/** The 9 RLS-protected tables keyed by a school_id column (schools itself is keyed on id). */
+/** The 13 RLS-protected tables keyed by a school_id column (schools itself is keyed on id). */
 export const tenantTables = [
   branches,
   sections,
@@ -17,4 +19,8 @@ export const tenantTables = [
   subscriptions,
   payments,
   invites,
+  contentItems,
+  contentExclusions,
+  contentChapters,
+  chunks,
 ];

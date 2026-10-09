@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL_OWNER: postgres://postgres:postgres@localhost:5432/tutor_test
+      DATABASE_URL_APP: postgres://app_user:app_user@localhost:5432/tutor_test
+      DATABASE_URL_ADMIN: postgres://app_admin:app_admin@localhost:5432/tutor_test
+      APP_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create databases and roles
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f docker/init.sql
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.10.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Includes the cross-school isolation suite (tests/isolation). Migrations run in vitest globalSetup.
+      - run: pnpm vitest run
+
+      # Build first: it type-checks the app and generates next-env.d.ts / .next/types (both gitignored).
+      # Uses the job-level DATABASE_URL_* / APP_URL env (route modules read them at import time).
+      - run: pnpm next build
+
+      - run: pnpm tsc --noEmit
+
+      # End-to-end runs after vitest (both reset tutor_test, so they must never overlap).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7

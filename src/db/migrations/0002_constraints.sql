@@ -1,0 +1,3 @@
+ALTER TABLE "subscriptions" DROP CONSTRAINT "subscriptions_status_check";--> statement-breakpoint
+ALTER TABLE "memberships" ADD CONSTRAINT "memberships_branch_role_check" CHECK (("memberships"."role" = 'school_admin' and "memberships"."branch_id" is null) or ("memberships"."role" <> 'school_admin' and "memberships"."branch_id" is not null));--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_status_check" CHECK ("subscriptions"."status" in ('pending','active','lapsed','cancelled'));

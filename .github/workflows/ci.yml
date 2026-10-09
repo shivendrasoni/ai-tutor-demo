@@ -46,6 +46,10 @@ jobs:
       # Includes the cross-school isolation suite (tests/isolation). Migrations run in vitest globalSetup.
       - run: pnpm vitest run
 
+      # Build first: it type-checks the app and generates next-env.d.ts / .next/types (both gitignored).
+      # Uses the job-level DATABASE_URL_* / APP_URL env (route modules read them at import time).
+      - run: pnpm next build
+
       - run: pnpm tsc --noEmit
 
       # End-to-end runs after vitest (both reset tutor_test, so they must never overlap).

@@ -12,3 +12,4 @@ coverage
 .env*.local
 .blob/
 .blob-test/
+.data/

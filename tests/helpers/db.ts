@@ -8,6 +8,7 @@ import {
   subscriptions, teacherAssignments, users,
 } from '@/db/schema';
 import type { Actor, Role } from '@/modules/tenancy/actor';
+import { generateBranchCode } from '@/modules/tenancy/codes';
 
 export type SchoolSeed = {
   schoolId: string;
@@ -62,7 +63,7 @@ export async function seedTwoSchools(): Promise<Seed> {
     const seedSchool = async (label: string): Promise<SchoolSeed> => {
       const [school] = await tx.insert(schools).values({ name: `School ${label}`, board: 'CBSE' }).returning();
       const schoolId = school.id;
-      const code = uniq();
+      const code = generateBranchCode();
       const [branch] = await tx
         .insert(branches)
         .values({ schoolId, name: `Branch ${label}`, signupCode: code })

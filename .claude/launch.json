@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "/bin/zsh", "runtimeArgs": ["-c", "export PATH=/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:$PATH; exec pnpm next dev -p 3000"], "port": 3000 }
+  ]
+}

@@ -10,7 +10,7 @@ import { requirePlatform } from '@/modules/tenancy/authz';
 import { addInterval, type PlanInterval } from './periods';
 
 const PaymentSchema = z.object({
-  amountMinor: z.number().int().positive(),
+  amountMinor: z.number().int().positive().max(2147483647), // int4 column
   currency: z.string().regex(/^[A-Z]{3}$/),
   externalRef: z.string().trim().min(1).max(200).optional(),
   paidAt: z.date().refine((d) => !Number.isNaN(d.getTime())),

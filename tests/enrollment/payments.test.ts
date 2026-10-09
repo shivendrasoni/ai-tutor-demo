@@ -51,6 +51,12 @@ describe('recordPayment vs removeStudent concurrency', () => {
 });
 
 describe('recordPayment', () => {
+  it('amountMinor is capped at int4 max', async () => {
+    expect(await codeOf(pay('2026-10-01T00:00:00Z', { amountMinor: 2147483648 }))).toBe('VALIDATION');
+    expect(await paymentCount()).toBe(0);
+    expect(await codeOf(pay('2026-10-01T00:00:00Z', { amountMinor: 2147483647 }))).toBe('ok');
+  });
+
   it('first payment activates from paidAt', async () => {
     const r = await pay('2027-01-31T00:00:00Z');
     expect(r.periodStart.toISOString()).toBe('2027-01-31T00:00:00.000Z');

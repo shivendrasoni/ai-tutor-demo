@@ -391,6 +391,12 @@ describe('platform', () => {
     await expectError(await paymentsRoute.POST(req('POST', '/x', { cookie, body: { ...base, paidAt: 'not-a-date' } })), 400, 'VALIDATION');
   });
 
+  it('payments: amountMinor above int4 max → 400 VALIDATION (not a 500)', async () => {
+    const cookie = await sidFor(seed.platform.userId);
+    const body = { subscriptionId: seed.a.subscriptionId, amountMinor: 2147483648, paidAt: '2026-10-01T00:00:00.000Z' };
+    await expectError(await paymentsRoute.POST(req('POST', '/x', { cookie, body })), 400, 'VALIDATION');
+  });
+
   it('payment for a removed student → 409 STUDENT_REMOVED', async () => {
     await removeStudent(seed.a.schoolAdmin, seed.a.studentId);
     const cookie = await sidFor(seed.platform.userId);

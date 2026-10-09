@@ -172,6 +172,9 @@ describe('plans', () => {
     await expect(createPlan(seed.platform, { name: 'Neg', interval: 'monthly', priceMinor: -1 })).rejects.toMatchObject({
       code: 'VALIDATION',
     });
+    await expect(
+      createPlan(seed.platform, { name: 'Huge', interval: 'monthly', priceMinor: 2147483648 }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
     await withPlatform((tx) => tx.insert(plans).values({ name: 'Old', interval: 'monthly', priceMinor: 1, active: false }));
     const active = await listActivePlans();
     expect(active.map((p) => p.id).sort()).toEqual([id, seed.planId].sort());

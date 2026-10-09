@@ -10,7 +10,7 @@ export type Plan = typeof plans.$inferSelect;
 const PlanInput = z.object({
   name: z.string().trim().min(1).max(100),
   interval: z.enum(['monthly', 'annual']),
-  priceMinor: z.number().int().nonnegative(),
+  priceMinor: z.number().int().nonnegative().max(2147483647), // int4 column
   currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).optional(),
 });
 

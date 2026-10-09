@@ -7,6 +7,7 @@ import {
   branches, memberships, plans, schools, sections, studentProfiles, subjects,
   subscriptions, teacherAssignments, users,
 } from '@/db/schema';
+import { hashPassword } from '@/modules/tenancy/auth/passwords';
 import type { Actor, Role } from '@/modules/tenancy/actor';
 import { generateBranchCode } from '@/modules/tenancy/codes';
 
@@ -53,7 +54,13 @@ export async function currentCode(branchId: string): Promise<string> {
 
 const uniq = () => randomBytes(4).toString('hex'); // 8 chars
 
+/** Password for every seeded user (argon2-hashed once, lazily, and reused). */
+export const SEED_PASSWORD = 'correct-horse';
+let seedHash: Promise<string> | undefined;
+const getSeedHash = () => (seedHash ??= hashPassword(SEED_PASSWORD));
+
 export async function seedTwoSchools(): Promise<Seed> {
+  const passwordHash = await getSeedHash();
   return withPlatform(async (tx) => {
     const [plan] = await tx
       .insert(plans)
@@ -75,7 +82,7 @@ export async function seedTwoSchools(): Promise<Seed> {
       const mkUser = async (kind: string, role: Role, bId: string | null): Promise<Actor & { userId: string }> => {
         const [u] = await tx
           .insert(users)
-          .values({ username: `${kind}-${label}-${uniq()}`, name: `${kind} ${label}` })
+          .values({ username: `${kind.replace('-', '_')}_${label.toLowerCase()}_${uniq()}`, name: `${kind} ${label}`, passwordHash })
           .returning();
         await tx.insert(memberships).values({ userId: u.id, schoolId, branchId: bId, role });
         return { userId: u.id, isPlatformAdmin: false, schoolId, branchId: bId, roles: [role] };
@@ -108,7 +115,7 @@ export async function seedTwoSchools(): Promise<Seed> {
     const b = await seedSchool('B');
     const [pu] = await tx
       .insert(users)
-      .values({ username: `platform-${uniq()}`, name: 'Platform Admin', isPlatformAdmin: true })
+      .values({ username: `platform_${uniq()}`, name: 'Platform Admin', isPlatformAdmin: true, passwordHash })
       .returning();
     const platform: Actor = { userId: pu.id, isPlatformAdmin: true, schoolId: null, branchId: null, roles: [] };
     return { platform, planId: plan.id, a, b };

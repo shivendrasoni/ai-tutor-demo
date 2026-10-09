@@ -4,9 +4,9 @@ import { closeDb, withPlatform } from '@/db/client';
 import { payments, sessions, studentProfiles, subscriptions, users } from '@/db/schema';
 import { recordPayment } from '@/modules/enrollment/payments';
 import { listStudents, removeStudent, studentStatus } from '@/modules/enrollment/students';
-import { hashPassword, login, resolveActor } from '@/modules/tenancy';
+import { login, resolveActor } from '@/modules/tenancy';
 import { createSession } from '@/modules/tenancy/auth/sessions';
-import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
+import { resetDb, SEED_PASSWORD, seedTwoSchools, type Seed } from '../helpers/db';
 
 let seed: Seed;
 beforeEach(async () => {
@@ -28,7 +28,7 @@ describe('listStudents', () => {
     const rows = await listStudents(seed.a.schoolAdmin, {});
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({
-      userId: seed.a.studentId, name: 'student A', username: expect.stringMatching(/^student-A-/),
+      userId: seed.a.studentId, name: 'student A', username: expect.stringMatching(/^student_a_[0-9a-f]{8}$/),
       branchId: seed.a.branchId, branchName: 'Branch A', grade: 8, sectionName: '8-A',
       status: 'pending_payment', planName: 'Monthly', periodEnd: null,
     });
@@ -67,8 +67,7 @@ describe('listStudents', () => {
 
   it('school_admin cannot reach another school', async () => {
     expect(await codeOf(listStudents(seed.a.schoolAdmin, { schoolId: seed.b.schoolId }))).toBe('FORBIDDEN');
-    const r = await listStudents(seed.a.schoolAdmin, { branchId: seed.b.branchId }).catch(() => []);
-    expect(r.every((x) => x.userId !== seed.b.studentId)).toBe(true);
+    expect(await listStudents(seed.a.schoolAdmin, { branchId: seed.b.branchId })).toEqual([]);
     const own = await listStudents(seed.a.schoolAdmin, { schoolId: seed.a.schoolId });
     expect(own.map((x) => x.userId)).toEqual([seed.a.studentId]);
   });
@@ -88,22 +87,15 @@ describe('listStudents', () => {
 });
 
 describe('removeStudent', () => {
-  const makeLoginable = async (id: string) => {
-    const hash = await hashPassword('correct-horse-battery-1');
-    const username = `stu_${id.slice(0, 8)}`;
-    await withPlatform((tx) => tx.update(users).set({ passwordHash: hash, username }).where(eq(users.id, id)));
-    return username;
-  };
-
   it('removes: token dead, login ACCOUNT_REMOVED, data kept, subscription cancelled', async () => {
-    const username = await makeLoginable(seed.a.studentId);
-    const { token } = await login(username, 'correct-horse-battery-1');
+    const username = (await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.studentId))))[0].username!;
+    const { token } = await login(username, SEED_PASSWORD);
     expect(await resolveActor(token)).not.toBeNull();
 
     await removeStudent(seed.a.schoolAdmin, seed.a.studentId);
 
     expect(await resolveActor(token)).toBeNull();
-    expect(await codeOf(login(username, 'correct-horse-battery-1'))).toBe('ACCOUNT_REMOVED');
+    expect(await codeOf(login(username, SEED_PASSWORD))).toBe('ACCOUNT_REMOVED');
     expect((await profile(seed.a.studentId)).status).toBe('removed');
     expect((await subOf(seed.a.studentId)).status).toBe('cancelled');
     expect(await sessionCount(seed.a.studentId)).toBe(0);

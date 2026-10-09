@@ -127,7 +127,7 @@ describe('listPendingSubscriptions', () => {
       schoolName: 'School A', branchName: 'Branch A', grade: 8, parentName: 'Parent A',
       parentPhone: '9999999999', planName: 'Monthly', priceMinor: 49900, currency: 'INR',
     });
-    expect(rowA.username).toMatch(/^student-A-/);
+    expect(rowA.username).toMatch(/^student_a_[0-9a-f]{8}$/);
     expect(rowA.createdAt).toBeInstanceOf(Date);
 
     await pay('2027-01-31T00:00:00Z');

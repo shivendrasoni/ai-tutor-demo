@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { payments, studentProfiles, subscriptions } from '@/db/schema';
 import { lapseExpired } from '@/modules/enrollment/lapse';
+import { removeStudent } from '@/modules/enrollment/students';
+import { DomainError } from '@/lib/errors';
 import { listPendingSubscriptions, recordPayment } from '@/modules/enrollment/payments';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
@@ -25,6 +27,28 @@ const paymentCount = async () => (await withPlatform((tx) => tx.select().from(pa
 const setProfile = (id: string, status: string) =>
   withPlatform((tx) => tx.update(studentProfiles).set({ status }).where(eq(studentProfiles.userId, id)));
 const codeOf = (p: Promise<unknown>) => p.then(() => 'ok', (e) => e.code);
+
+describe('recordPayment vs removeStudent concurrency', () => {
+  it('never deadlocks and always ends removed + cancelled', async () => {
+    for (let round = 0; round < 10; round++) {
+      if (round > 0) {
+        await resetDb();
+        seed = await seedTwoSchools();
+      }
+      const [removal, payment] = await Promise.allSettled([
+        removeStudent(seed.a.schoolAdmin, seed.a.studentId),
+        pay('2026-10-01T00:00:00.000Z'),
+      ]);
+      expect(removal.status, `round ${round}: ${removal.status === 'rejected' ? (removal.reason as Error).message : ''}`).toBe('fulfilled');
+      if (payment.status === 'rejected') {
+        expect(payment.reason).toBeInstanceOf(DomainError);
+        expect((payment.reason as DomainError).code).toBe('STUDENT_REMOVED');
+      }
+      expect(await profileStatus(seed.a.studentId)).toBe('removed');
+      expect((await subRow(seed.a.subscriptionId)).status).toBe('cancelled');
+    }
+  });
+});
 
 describe('recordPayment', () => {
   it('first payment activates from paidAt', async () => {

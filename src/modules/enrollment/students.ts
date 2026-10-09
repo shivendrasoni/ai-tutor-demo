@@ -1,4 +1,4 @@
-import { and, asc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   branches, plans, sections, studentProfiles, subscriptions, users,
@@ -102,6 +102,8 @@ export async function removeStudent(actor: Actor, studentUserId: string): Promis
     if (!profile) throw notFound();
     if (!canManageBranch(actor, profile.schoolId, profile.branchId)) throw new DomainError('FORBIDDEN');
 
+    // Lock order must match recordPayment (subscription row first, then profile) to avoid deadlocks.
+    await tx.execute(sql`select id from subscriptions where student_id = ${studentUserId} for update`);
     await tx.update(studentProfiles).set({ status: 'removed' }).where(eq(studentProfiles.userId, studentUserId));
     await tx.update(subscriptions).set({ status: 'cancelled' }).where(eq(subscriptions.studentId, studentUserId));
     await revokeUserSessions(tx, studentUserId);

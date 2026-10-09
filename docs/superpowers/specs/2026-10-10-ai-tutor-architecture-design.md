@@ -35,6 +35,7 @@ An AI tutor sold to schools (B2B2C) for students in classes 5–12. Each school'
 | LLM layer | **Provider-neutral.** Mastra agent framework on the Vercel AI SDK provider abstraction; model chosen per skill |
 | Embeddings | OpenAI `text-embedding-3-small` behind an `Embedder` interface |
 | Pilot study tools | Practice tests, study notes, last-night notes, mock exams. **Flashcards deferred** |
+| Fast decisions | TypeSafe **Jev** behind a `Decider` interface for retrieval scoping, model routing, intent/skill routing, and syllabus/safety flags. Jev complements vector retrieval; it does not replace it |
 
 ## 3. Architecture overview
 
@@ -79,6 +80,18 @@ Each module owns its tables and exposes a typed service interface. Other modules
   - `Embedder`: `embed(texts) → vectors`, with model id and dimension
   - `OcrExtractor`: `extract(pageImage) → text`. The first implementation uses a vision-capable model through the AI SDK.
   - `ModelRegistry`: resolves a skill's model string to an AI SDK model
+  - `Decider`: fast typed judgments, used wherever code must branch on a judgment about text:
+    - `choice(state, options) → {choice, probabilities, confidence}`
+    - `score(state, levels) → {score, probabilities, confidence}`
+    - `yesNo(state, statement) → p`
+
+    The first implementation is TypeSafe Jev (`POST /v1/systemone`; questions are batched into one call and evaluated in parallel). Because only a Python SDK is documented, we write a small typed HTTP client. The fallback implementation is an LLM structured-output call through the AI SDK. If Jev errors or times out (500 ms budget), the system falls back to it or to the default behavior listed for each decision in §6.3.
+
+### 3.3 Decision layer: what Jev does and does not do
+
+- **Does:** turn a student message into labels the code can act on, and route on them: subject and chapter, difficulty, intent, off-syllabus, needs review. Every answer comes with a confidence, and each consumer defines high, medium, and low behavior (§6.3).
+- **Does not:** find passages or produce citations. Vector search over chunks still does that, because the tutor must quote and cite actual pages. Jev narrows *where* vector search looks.
+- **Cost logic:** query embedding and pgvector search are already cheap. The expensive step is answer generation. The main savings lever is model routing (a cheap model for easy turns), not replacing retrieval.
 
 ## 4. Data model
 
@@ -135,11 +148,14 @@ payments        id, school_id, subscription_id, amount, currency,
 
 ### 4.4 Tutor and study tools
 ```
-skills          id, key, name, kind ∈ chat | generator | grader, instructions, model,
+skills          id, key, name, kind ∈ chat | generator | grader, instructions,
+                models jsonb {standard, advanced},
                 tools[], output_schema?, provider_options?, enabled
 conversations   id, school_id, student_id, skill_id, subject_id?, created_at
 messages        id, school_id, conversation_id, role, content, citations jsonb,
-                tokens_in, tokens_out, cost, model, latency_ms, flagged
+                tokens_in, tokens_out, cost, model, latency_ms, flagged,
+                decisions jsonb   (every Decider answer for this turn: question, choice/score/p,
+                                   confidence, provider, latency_ms)
 artifacts       id, school_id, student_id, skill_id,
                 type ∈ practice_test | mock_exam | study_notes | last_night_notes,
                 params jsonb, content jsonb, source_chunk_ids[]
@@ -182,19 +198,47 @@ Skills are platform-wide in v1. Per-school overrides are out of scope.
 ### 6.3 Tutor turn
 1. The student sends a message in a conversation bound to a skill (default: Socratic) and an optional subject.
 2. The tutor checks the student's status and daily token budget (a configurable platform-wide limit; the default value is set in sub-spec 3).
-3. A Mastra agent is built from the skill config. The **shared guardrail preamble** is prepended to every skill:
+3. **Route (one batched `Decider` call, recent turns + message as state).** The questions and how each answer is used:
+
+   | Question | Primitive | Options / levels | Used for |
+   |---|---|---|---|
+   | `intent` | choice | `learn_concept`, `solve_problem`, `wants_final_answer`, `exam_prep`, `off_topic`, `unsafe` | Skill and guardrail routing |
+   | `subject` | choice | The student's visible subjects, plus `other` | Retrieval scope |
+   | `difficulty` | score | `recall`, `apply`, `multi_step` | Model tier |
+   | `out_of_syllabus` | yesNo | "The question goes beyond a class-*N* syllabus" | Syllabus flag |
+   | `needs_review` | yesNo | "The message suggests distress, harm, or inappropriate content" | Flag queue (an extra safety layer, not the only one) |
+
+   **Chapter.** When `subject` is confident, a second call does `chapter` choice over that subject's visible chapters, plus `none`.
+
+   **Actions by confidence.** Thresholds are initial values, tuned by the routing eval (§8):
+
+   | Decision | Answer and confidence | Action |
+   |---|---|---|
+   | Subject or chapter | Confidence ≥ 0.7 | Pass as a filter to `search_curriculum` |
+   | Subject or chapter | 0.4–0.7 | Filter to the top-2 options |
+   | Subject or chapter | < 0.4 | No filter |
+   | Difficulty | `multi_step` with p ≥ 0.5 | Use the skill's `advanced` model |
+   | Difficulty | Otherwise | Use the `standard` model |
+   | Intent | `off_topic` with confidence ≥ 0.8 | Reply with a fixed redirect and make no LLM call |
+   | Intent | `unsafe` with p ≥ 0.5 | Send a fixed safe-response template, flag the message, make no LLM call |
+   | Intent | `wants_final_answer` | If the conversation's skill is general chat, run the turn in Socratic mode and tell the student so. A student-selected skill is otherwise never overridden. |
+   | `out_of_syllabus` | p ≥ 0.6 | Instruct the agent to add the out-of-syllabus flag |
+   | `needs_review` | p ≥ 0.5 | Set `messages.flagged` and send to the review queue |
+
+   **Decider failure or timeout:** no filters, `standard` model, no intent override, and the guardrail preamble still applies. This is the same behavior as having no Decider.
+4. A Mastra agent is built from the skill config and the chosen model tier. The **shared guardrail preamble** is prepended to every skill:
    - age-appropriate content
    - academic focus
    - refusal of harmful requests
    - cite sources and flag out-of-syllabus content
-4. Tool `search_curriculum(query, subject?, chapter?)` calls `content.searchChunks`, which runs pgvector similarity within `visibleContent(student)`. It returns chunks labelled with book, chapter, and pages.
-5. The response streams to the client. Citations are taken from the chunks the tool returned, never from model-invented references.
-6. Tokens, cost, latency, and retrieved chunk ids are logged on the message.
+5. Tool `search_curriculum(query, subject?, chapter?)` calls `content.searchChunks`. That runs pgvector similarity within `visibleContent(student)`, narrowed by the routed filters. It returns chunks labelled with book, chapter, and pages. If a filtered search returns no chunk above the similarity floor, the search is retried without filters.
+6. The response streams to the client. Citations are taken from the chunks the tool returned, never from model-invented references.
+7. Tokens, cost, latency, model, retrieved chunk ids, and all Decider answers are logged on the message.
 - **Failure handling:** a provider error or timeout gets one retry. If that also fails, the student sees "tutor is busy" and their message is kept.
 
 ### 6.4 Study artifacts
 1. The student picks a tool (practice test, mock exam, study notes, last-night notes) plus subject and chapters.
-2. The generator skill runs with `search_curriculum` and its `output_schema`. The output is validated; on failure there is one repair attempt, then an error.
+2. The generator skill runs with `search_curriculum` (scoped to the chosen chapters, so no routing call is needed) and its `output_schema`. The output is validated; on failure there is one repair attempt, then an error.
 3. The artifact is saved with `source_chunk_ids`. Every question or note section must reference at least one source chunk.
 4. **Mock exams** follow a board exam pattern template (sections, marks, question types, duration) attached to the skill params. They are timed in the UI.
 5. **Scoring:** objective questions are auto-scored. Subjective answers are graded by a `grader` skill against a rubric generated alongside the question, and the result is shown as feedback.
@@ -226,10 +270,20 @@ Skills are platform-wide in v1. Per-school overrides are out of scope.
   - ~30 golden questions per pilot book, each with its expected chapter and page. Measures retrieval hit rate and citation accuracy.
   - A Socratic rubric scored by an LLM judge: the final answer is not stated until the student has made at least one attempt at it, and guiding questions are asked.
   - These evals are the gate for swapping providers or models.
+- **Routing eval (before trusting Jev, and before any threshold change):**
+  - ~200 real or realistic student messages labelled with subject, chapter, intent, difficulty, and out-of-syllabus.
+  - For each decision, measure accuracy at each confidence band, and choose thresholds where the high band is ≥ 95% accurate.
+  - Also measure end-to-end citation accuracy with routing on vs off. Routing must not reduce it.
+  - Run the same eval against the LLM fallback `Decider`, so the fallback's quality is known.
 - **Study tools:** schema validation, a source-chunk reference check, and scoring correctness on fixture answers.
 
 ## 9. Observability
 - Per model call: skill, model, tokens, cost, latency, retrieved chunk ids. These roll up to cost per student, per school, and per skill.
+- Per Decider call: answers, confidences, latency, provider, fallback used. Dashboards show:
+  - the share of turns routed to the `advanced` model
+  - off-topic blocks
+  - filter fallbacks (filtered search returned nothing)
+  - Decider error rate
 - Error tracking (e.g. Sentry); ingestion job dashboard.
 - **Flagged conversations queue:** guardrail triggers plus student thumbs-down, reviewed in `/platform`.
 
@@ -239,7 +293,7 @@ Each item gets its own spec → plan → implementation cycle:
 
 1. **Tenancy, identity & enrollment:** modules ①②, RLS foundation, isolation test suite, signup/activation, manual payments, plans
 2. **Content & ingestion:** module ③, the worker, `Embedder`/`OcrExtractor`, visibility resolver, upload UIs
-3. **Tutor agent & skills:** module ④, Mastra integration, skills registry, guardrails, Socratic + general chat skills, citations, budgets, eval harness
+3. **Tutor agent & skills:** module ④, Mastra integration, skills registry, guardrails, Socratic + general chat skills, citations, budgets, `Decider` (Jev client + LLM fallback) and turn routing, eval harness including the routing eval
 4. **Study tools:** module ⑤, practice tests, mock exams (exam pattern templates), study notes, last-night notes, grading
 5. **Dashboards & analytics:** module ⑥, school/branch/teacher/platform views, flagged queue, cost reporting
 
@@ -251,3 +305,6 @@ Each item gets its own spec → plan → implementation cycle:
 - Per-school skill or plan customization
 - Languages other than English
 - Native mobile apps; offline mode
+
+## 12. Pilot prerequisites (non-code)
+- **TypeSafe vendor review:** student messages from minors are sent to TypeSafe. Before the pilot, get written answers on data retention, training use, data residency, pricing, latency, and rate limits, and sign a DPA. Do the same for the LLM and embedding providers in use. If TypeSafe can't meet these terms, ship with the LLM fallback `Decider`.

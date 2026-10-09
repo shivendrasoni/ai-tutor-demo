@@ -25,16 +25,14 @@ export type SchoolSeed = {
 };
 export type Seed = { platform: Actor; planId: string; a: SchoolSeed; b: SchoolSeed };
 
-const TABLES = [
-  'invites', 'payments', 'subscriptions', 'student_profiles', 'teacher_assignments',
-  'memberships', 'sessions', 'subjects', 'sections', 'branches', 'schools', 'plans', 'users',
-];
-
-/** Truncates all tables as the owner role. */
+/** Truncates every table in schema public (as owner), so future tables can't survive a reset. */
 export async function resetDb(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER });
   try {
-    await drizzle(pool).execute(sql.raw(`truncate table ${TABLES.join(', ')} restart identity cascade`));
+    const db = drizzle(pool);
+    const res = await db.execute(sql`select tablename from pg_tables where schemaname = 'public'`);
+    const names = res.rows.map((r) => `"${r.tablename}"`);
+    if (names.length) await db.execute(sql.raw(`truncate table ${names.join(', ')} restart identity cascade`));
   } finally {
     await pool.end();
   }

@@ -33,6 +33,10 @@ export const memberships = pgTable(
   (t) => [
     unique('memberships_user_school_unique').on(t.userId, t.schoolId),
     check('memberships_role_check', sql`${t.role} in ('school_admin','branch_admin','teacher','student')`),
+    check(
+      'memberships_branch_role_check',
+      sql`(${t.role} = 'school_admin' and ${t.branchId} is null) or (${t.role} <> 'school_admin' and ${t.branchId} is not null)`,
+    ),
   ],
 );
 

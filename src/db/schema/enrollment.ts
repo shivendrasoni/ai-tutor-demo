@@ -52,7 +52,7 @@ export const subscriptions = pgTable(
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [check('subscriptions_status_check', sql`${t.status} in ('pending','active','past_due','cancelled')`)],
+  (t) => [check('subscriptions_status_check', sql`${t.status} in ('pending','active','lapsed','cancelled')`)],
 );
 
 export const payments = pgTable(

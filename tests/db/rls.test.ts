@@ -26,7 +26,7 @@ describe('row-level security', () => {
     // Drizzle wraps driver errors; the Postgres message is on `cause`.
     await expect(
       withTenant(seed.a.schoolId, (tx) => tx.insert(subjects).values({ schoolId: seed.b.schoolId, name: 'X' })),
-    ).rejects.toMatchObject({ cause: { message: expect.stringMatching(/row-level security/) } });
+    ).rejects.toMatchObject({ cause: { code: '42501', message: expect.stringMatching(/row-level security/) } });
   });
   it('platform sees all schools', async () => {
     const rows = await withPlatform((tx) => tx.select().from(schools));

@@ -9,8 +9,13 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** 32 random bytes, base64url; only the SHA-256 (`hashToken`) is ever stored. */
+export function generateToken(): string {
+  return randomBytes(32).toString('base64url');
+}
+
 export async function createSession(userId: string): Promise<string> {
-  const token = randomBytes(32).toString('base64url');
+  const token = generateToken();
   await withPlatform((tx) =>
     tx.insert(sessions).values({
       userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + SESSION_TTL_MS),

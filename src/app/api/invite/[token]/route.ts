@@ -15,9 +15,9 @@ export const GET = handle(async (_req: Request, ctx: Ctx) => {
 });
 
 const Body = z.object({
-  planId: z.string(),
-  username: z.string(),
-  password: z.string(),
+  planId: z.string().max(64),
+  username: z.string().max(200),
+  password: z.string().max(128),
 });
 
 export const POST = handle(async (req: Request, ctx: Ctx) => {

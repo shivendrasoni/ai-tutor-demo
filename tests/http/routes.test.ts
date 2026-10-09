@@ -30,14 +30,15 @@ beforeEach(async () => {
 });
 afterAll(closeDb);
 
-type Opts = { body?: unknown; raw?: string; cookie?: string };
+type Opts = { body?: unknown; raw?: string; cookie?: string; contentType?: string | null };
 function req(method: string, path: string, opts: Opts = {}): Request {
   const headers = new Headers();
   if (opts.cookie) headers.set('cookie', opts.cookie);
   let body: string | undefined;
   if (opts.raw !== undefined) body = opts.raw;
   else if (opts.body !== undefined) body = JSON.stringify(opts.body);
-  if (body !== undefined) headers.set('content-type', 'application/json');
+  const contentType = opts.contentType === undefined ? 'application/json' : opts.contentType;
+  if (body !== undefined && contentType !== null) headers.set('content-type', contentType);
   return new Request(`http://localhost${path}`, { method, headers, body });
 }
 const ctx = <P extends Record<string, string>>(params: P) => ({ params: Promise.resolve(params) });
@@ -386,6 +387,64 @@ describe('platform', () => {
       cookie, body: { subscriptionId: seed.a.subscriptionId, amountMinor: 1, paidAt: '2026-10-01T00:00:00.000Z' },
     }));
     await expectError(res, 403, 'FORBIDDEN');
+  });
+});
+
+describe('readJson guards', () => {
+  const loginBody = { username: 'someone', password: 'whatever-pass' };
+
+  it('text/plain body → 400 VALIDATION (login CSRF via simple form/fetch is refused)', async () => {
+    const res = await loginRoute.POST(req('POST', '/api/auth/login', { body: loginBody, contentType: 'text/plain' }));
+    await expectError(res, 400, 'VALIDATION');
+  });
+
+  it('missing / form-encoded content type → 400 VALIDATION', async () => {
+    await expectError(await loginRoute.POST(req('POST', '/api/auth/login', { body: loginBody, contentType: null })), 400, 'VALIDATION');
+    await expectError(
+      await loginRoute.POST(req('POST', '/api/auth/login', { raw: 'username=a&password=b', contentType: 'application/x-www-form-urlencoded' })),
+      400, 'VALIDATION',
+    );
+  });
+
+  it('application/json with a charset parameter is accepted', async () => {
+    const res = await loginRoute.POST(req('POST', '/api/auth/login', { body: loginBody, contentType: 'Application/JSON; charset=utf-8' }));
+    await expectError(res, 401, 'INVALID_CREDENTIALS');
+  });
+
+  it('body over 100 KB → 400 VALIDATION', async () => {
+    const res = await joinRoute.POST(req('POST', '/api/join', { body: signupBody({ studentName: 'x'.repeat(101 * 1024) }) }));
+    await expectError(res, 400, 'VALIDATION');
+  });
+
+  it('join caps field lengths', async () => {
+    for (const over of [
+      { studentName: 'x'.repeat(201) }, { parentName: 'x'.repeat(201) }, { username: 'x'.repeat(201) },
+      { password: 'x'.repeat(129) }, { parentPhone: '9'.repeat(33) }, { parentEmail: `${'a'.repeat(250)}@x.io` },
+    ]) {
+      await expectError(await joinRoute.POST(req('POST', '/api/join', { body: signupBody(over) })), 400, 'VALIDATION');
+    }
+  });
+
+  it('invite POST caps username and password', async () => {
+    const token = 'anything';
+    for (const over of [{ username: 'x'.repeat(201) }, { password: 'x'.repeat(129) }]) {
+      const body = { planId: seed.planId, username: 'kabir.k', password: 'kabir-password', ...over };
+      await expectError(await inviteRoute.POST(req('POST', `/api/invite/${token}`, { body }), ctx({ token })), 400, 'VALIDATION');
+    }
+  });
+
+  it('manual add caps field lengths', async () => {
+    const cookie = await sidFor(seed.a.branchAdmin.userId);
+    const base = { branchId: seed.a.branchId, grade: 8, studentName: 'Kabir', parentName: 'P', parentPhone: '9000000000' };
+    for (const over of [
+      { studentName: 'x'.repeat(201) }, { parentName: 'x'.repeat(201) }, { parentPhone: '9'.repeat(33) },
+      { parentEmail: `${'a'.repeat(250)}@x.io` },
+    ]) {
+      await expectError(
+        await studentsRoute.POST(req('POST', '/api/school/students', { cookie, body: { ...base, ...over } })),
+        400, 'VALIDATION',
+      );
+    }
   });
 });
 

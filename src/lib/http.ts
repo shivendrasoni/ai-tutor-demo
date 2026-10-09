@@ -106,11 +106,34 @@ const validation = (message: string, error?: z.ZodError) =>
     error ? { issues: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) } : undefined,
   );
 
-/** Parses the JSON body with `schema`; malformed JSON or schema failures become 400 VALIDATION. */
+export const MAX_BODY_BYTES = 100 * 1024;
+
+/** True when the Content-Type media type is exactly application/json (parameters such as charset allowed). */
+function isJsonContentType(header: string | null): boolean {
+  return header?.split(';')[0].trim().toLowerCase() === 'application/json';
+}
+
+/**
+ * Parses the JSON body with `schema`. Requires `Content-Type: application/json` (so cross-site "simple"
+ * form/fetch posts, which cannot set it without a CORS preflight, are refused) and caps the body at
+ * MAX_BODY_BYTES. Wrong content type, oversized or malformed bodies, and schema failures are 400 VALIDATION.
+ */
 export async function readJson<S extends z.ZodType>(req: Request, schema: S): Promise<z.output<S>> {
+  if (!isJsonContentType(req.headers.get('content-type'))) {
+    throw validation('Content-Type must be application/json');
+  }
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw validation('Request body is too large');
+  let text: string;
+  try {
+    text = await req.text();
+  } catch {
+    throw validation('Request body could not be read');
+  }
+  if (Buffer.byteLength(text, 'utf8') > MAX_BODY_BYTES) throw validation('Request body is too large');
   let raw: unknown;
   try {
-    raw = await req.json();
+    raw = JSON.parse(text);
   } catch {
     throw validation('Request body must be valid JSON');
   }

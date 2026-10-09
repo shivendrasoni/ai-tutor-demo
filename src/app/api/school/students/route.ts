@@ -19,13 +19,13 @@ export const GET = handle(async (req: Request) => {
 });
 
 const Body = z.object({
-  branchId: z.string(),
+  branchId: z.string().max(64),
   grade: z.number(),
-  sectionId: z.string().optional(),
-  studentName: z.string(),
-  parentName: z.string(),
-  parentPhone: z.string(),
-  parentEmail: z.string().optional(),
+  sectionId: z.string().max(64).optional(),
+  studentName: z.string().max(200),
+  parentName: z.string().max(200),
+  parentPhone: z.string().max(32),
+  parentEmail: z.string().max(254).optional(),
 });
 
 export const POST = handle(async (req: Request) => {

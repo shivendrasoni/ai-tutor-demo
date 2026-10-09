@@ -29,6 +29,9 @@ afterAll(closeDb);
 
 const codeOf = (p: Promise<unknown>) => p.then(() => 'ok', (e: { code?: string }) => e.code ?? String(e));
 const DENIED = ['FORBIDDEN', 'NOT_FOUND'];
+/** The Postgres SQLSTATE behind a rejected query (Drizzle wraps the driver error in `cause`). */
+const pgCodeOf = (p: Promise<unknown>) =>
+  p.then(() => 'ok', (e: { code?: string; cause?: { code?: string } }) => e.cause?.code ?? e.code ?? String(e));
 
 type TenantTable = (typeof tenantTables)[number];
 const name = (t: TenantTable) => getTableName(t);
@@ -299,21 +302,22 @@ describe('raw RLS isolation over tenantTables', () => {
       expect(del.rows.length, `delete ${name(T)}`).toBe(0);
     }
     // Moving an A row into B is rejected by the WITH CHECK clause.
+    // 42501 = insufficient_privilege: "new row violates row-level security policy".
     expect(
-      await codeOf(
+      await pgCodeOf(
         withTenant(seed.a.schoolId, (tx) =>
           tx.update(subjects).set({ schoolId: seed.b.schoolId }).where(eq(subjects.schoolId, seed.a.schoolId)),
         ),
       ),
-    ).not.toBe('ok');
+    ).toBe('42501');
     expect(await snapshot(seed.b.schoolId)).toEqual(before);
   });
 
   it('withTenant(A) INSERT of a B-keyed row is rejected', async () => {
-    const r = await codeOf(
+    const r = await pgCodeOf(
       withTenant(seed.a.schoolId, (tx) => tx.insert(subjects).values({ schoolId: seed.b.schoolId, name: 'Rogue' })),
     );
-    expect(r).not.toBe('ok');
+    expect(r).toBe('42501');
   });
 
   it('schools under withTenant(A) shows only School A; B cannot be updated', async () => {

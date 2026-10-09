@@ -4,7 +4,7 @@ export type ChapterSpan = { ordinal: number; title: string; pageStart: number; p
 
 type Start = { title: string; page: number };
 
-const HEADING = /^(chapter|unit|lesson)\s+(\d+|[ivxlcdm]+)\b/i;
+const HEADING = /^(chapter|unit|lesson)\s+(\d+|[ivxlc]+)\b/i;
 const FIXED_RANGE = 20;
 
 function fromStarts(starts: Start[], total: number): ChapterSpan[] {

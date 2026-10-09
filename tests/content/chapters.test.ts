@@ -44,6 +44,14 @@ describe('detectChapters', () => {
     const p = pages(6); p[3] = 'Chapter 1\nIntro';
     expect(detectChapters(p, []).map((c) => [c.title, c.pageStart, c.pageEnd])).toEqual([['Front matter', 1, 3], ['Chapter 1 — Intro', 4, 6]]);
   });
+  it('"Unit M" / "Lesson dim" are not headings (Roman class is ivxlc only)', () => {
+    const p = pages(4); p[0] = 'Unit M\nx'; p[1] = 'Lesson dim\nx';
+    expect(detectChapters(p, []).map((c) => c.title)).toEqual(['Pages 1–4']);
+  });
+  it('a 79-char next line is appended; an 80-char one is not', () => {
+    const p = pages(4); p[0] = 'Chapter 1\n' + 'y'.repeat(79); p[2] = 'Chapter 2\n' + 'y'.repeat(80);
+    expect(detectChapters(p, []).map((c) => c.title)).toEqual(['Chapter 1 — ' + 'y'.repeat(79), 'Chapter 2']);
+  });
   it('method 3: fixed 20-page ranges', () => {
     expect(detectChapters(pages(45), []).map((c) => [c.title, c.pageStart, c.pageEnd]))
       .toEqual([['Pages 1–20', 1, 20], ['Pages 21–40', 21, 40], ['Pages 41–45', 41, 45]]);

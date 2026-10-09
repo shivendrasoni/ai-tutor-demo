@@ -8,6 +8,8 @@ const { blobs, embedder, ocr } = getDeps();
 const worker = await startWorker({ blobs, embedder, ocr });
 console.log('[worker] ingest worker started');
 
-process.on('SIGTERM', () => {
-  void worker.stop().then(() => process.exit(0));
-});
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    void worker.stop().then(() => process.exit(0));
+  });
+}

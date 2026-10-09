@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { FakeEmbedder } from '@/modules/content/embedder';
 import { FakeOcrExtractor } from '@/modules/content/ocr';
-import { INGEST_QUEUE_OPTIONS, InMemoryQueue, PgBossQueue, startWorker } from '@/modules/content/queue';
+import { INGEST_QUEUE_OPTIONS, InMemoryQueue, isFinalAttempt, PgBossQueue, startWorker } from '@/modules/content/queue';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 import { getItem, queueItemFor, testBlobs } from '../helpers/content';
 import { textBook30 } from '../helpers/pdfs';
@@ -24,6 +24,11 @@ async function waitFor(cond: () => Promise<boolean>, ms: number) {
 describe('ingest queue', () => {
   it('queue options are retryLimit 3 with backoff', () =>
     expect(INGEST_QUEUE_OPTIONS).toEqual({ retryLimit: 3, retryBackoff: true }));
+
+  it('isFinalAttempt is true only once retryCount reaches retryLimit', () => {
+    expect(isFinalAttempt({ retryCount: 2, retryLimit: 3 })).toBe(false);
+    expect(isFinalAttempt({ retryCount: 3, retryLimit: 3 })).toBe(true);
+  });
 
   it('InMemoryQueue records jobs', async () => {
     const q = new InMemoryQueue();

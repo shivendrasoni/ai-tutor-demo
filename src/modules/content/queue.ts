@@ -47,6 +47,9 @@ export class PgBossQueue implements IngestQueue {
   }
 }
 
+export const isFinalAttempt = (job: { retryCount: number; retryLimit: number }) =>
+  job.retryCount >= job.retryLimit;
+
 export async function startWorker(deps?: IngestDeps): Promise<{ stop(): Promise<void> }> {
   const d = deps ?? getDeps();
   const boss = await startBoss();
@@ -56,7 +59,7 @@ export async function startWorker(deps?: IngestDeps): Promise<{ stop(): Promise<
     { includeMetadata: true },
     async (jobs) => {
       for (const job of jobs) {
-        await runIngest(job.data, d, { finalAttempt: job.retryCount >= job.retryLimit });
+        await runIngest(job.data, d, { finalAttempt: isFinalAttempt(job) });
       }
     },
   );

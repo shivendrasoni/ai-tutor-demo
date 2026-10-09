@@ -148,6 +148,30 @@ describe('runIngest', () => {
     expect(await countChapters(job)).toBe(3);
   });
 
+  it('overlapping runs (second starts and finishes inside the first run) leave no duplicates', async () => {
+    const bytes = await textBook30();
+    const clean = await queueItemFor(seed.a, bytes);
+    await runIngest(clean, deps);
+    const job = await queueItemFor(seed.a, bytes);
+    const fake = new FakeEmbedder();
+    let nested = false;
+    const overlapping: Embedder = {
+      modelId: fake.modelId,
+      dimension: fake.dimension,
+      embed: async (t) => {
+        if (!nested) {
+          nested = true;
+          await runIngest(job, deps);
+        }
+        return fake.embed(t);
+      },
+    };
+    await runIngest(job, { ...deps, embedder: overlapping });
+    expect(await countChunks(job)).toBe(await countChunks(clean));
+    expect(await countChapters(job)).toBe(3);
+    expect((await getItem(job)).ingestStatus).toBe('ready');
+  });
+
   it('fail then retry succeeds and clears ingest_error', async () => {
     const job = await queueItemFor(seed.a, await textBook30());
     await runIngest(job, { ...deps, embedder: failing('boom') }, { finalAttempt: true }).catch(() => {});

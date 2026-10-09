@@ -86,6 +86,9 @@ export async function runIngest(
         .where(and(eq(contentItems.id, contentItemId), eq(contentItems.schoolId, schoolId)))
         .for('update');
       if (locked.length === 0) return; // deleted mid-ingest
+      // An overlapping run may have committed already; replace rather than append.
+      await tx.delete(chunks).where(eq(chunks.contentItemId, contentItemId));
+      await tx.delete(contentChapters).where(eq(contentChapters.contentItemId, contentItemId));
       const rows: (typeof chunks.$inferInsert)[] = [];
       let k = 0;
       for (const d of drafts) {
@@ -132,16 +135,21 @@ export async function runIngest(
     });
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, MAX_ERROR_CHARS);
-    const updated = await withTenant(schoolId, (tx) =>
-      tx
-        .update(contentItems)
-        .set({
-          ingestError: message,
-          ...(opts.finalAttempt ? { ingestStatus: 'failed' } : {}),
-        })
-        .where(and(eq(contentItems.id, contentItemId), eq(contentItems.schoolId, schoolId)))
-        .returning({ id: contentItems.id }),
-    );
+    let updated: { id: string }[] = [{ id: contentItemId }];
+    try {
+      updated = await withTenant(schoolId, (tx) =>
+        tx
+          .update(contentItems)
+          .set({
+            ingestError: message,
+            ...(opts.finalAttempt ? { ingestStatus: 'failed' } : {}),
+          })
+          .where(and(eq(contentItems.id, contentItemId), eq(contentItems.schoolId, schoolId)))
+          .returning({ id: contentItems.id }),
+      );
+    } catch {
+      // recording the failure is best-effort; the original error must survive
+    }
     if (updated.length === 0) return; // item was deleted mid-ingest: nothing left to fail
     throw err;
   }

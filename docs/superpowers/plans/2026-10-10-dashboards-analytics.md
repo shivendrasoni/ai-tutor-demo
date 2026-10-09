@@ -18,6 +18,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-10-dashboards-analytics-design.md`. This plan implements §6.5 of the parent spec, module ⑥, and §9 (observability views). It assumes plans 1–4 are implemented per their interfaces: `listStudents`, `removeStudent`, `manualAddStudent`, `rotateBranchCode`, `setBranchCodeEnabled`, `listPendingSubscriptions`, `recordPayment`, `createPlan`, `createSchool`, `createBranch`, `chapterProgress`, `listVisibleChapters`, the `messages`/`usage_daily` tables, and `tests/helpers/db.ts`.
 
+**As-built alignment (sub-project 1 is merged; `docs/superpowers/plans/AS-BUILT-subproject-1.md` overrides plan 1 text):**
+- Import services only from `src/modules/{tenancy,enrollment}/index.ts`. Routes use the real `src/lib/http.ts` helpers: `handle`, `requireActor`, `readJson(req, zodSchema)`, `parseWith`, and `sessionToken(req)` for cookies.
+- Existing files that are modified (not recreated): `src/app/page.tsx`, `src/app/(public)/login/page.tsx` (and its `_lib/` helper if the redirect logic lives there), `src/app/api/auth/login/route.ts`, and `tests/http/routes.test.ts`. `src/db/schema/index.ts` and `tenantTables` are not touched, because this plan adds no tables or migrations. The `tests/db/rls-catalog.test.ts` gate stays green.
+- No new `ErrorCode` is introduced, so the `STATUS` map in `src/lib/http.ts` is unchanged.
+- Test seeds reuse `seedTwoSchools` and `SEED_PASSWORD` (`'correct-horse'`) from `tests/helpers/db.ts`. Seeded users can log in with it, so e2e and route tests log in as seeded actors and need no custom user creation. `tests/helpers/analytics-seed.ts` adds new users with the same `SEED_PASSWORD`.
+- The isolation suite is `tests/isolation/services.test.ts`; Task 10 adds a sibling file in the same directory rather than editing it.
+- `login()` already throws `ACCOUNT_REMOVED`, which `handle` maps to HTTP 403. The e2e removal assertion relies on that.
+
 ## Global Constraints
 
 - **Usage windows:** `days` is `7 | 30`. The window is the last `days` **UTC calendar days including today**. It starts at UTC midnight of `today − (days − 1)` and includes `now`. A message at exactly that midnight is inside; one millisecond earlier is outside. Local timezone never matters.
@@ -134,7 +142,7 @@ it('requirePageActor returns the actor for a valid cookie and role', async () =>
 ```
 
 - [ ] **Step 2: Run** `export PATH=/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH && pnpm vitest run tests/lib`. Expected: FAIL (modules missing).
-- [ ] **Step 3: Implement.** `homeFor` is a pure function that checks `isPlatformAdmin` first, then the first matching role. `checkPageAccess` is pure. `requirePageActor` is a thin wrapper that adds the cookie read and `redirect()`. In the login route, compute `home = homeFor(actor, student ? (await studentStatus(actor)).status : undefined)`. The login page navigates to `res.home`. `src/app/page.tsx` is a server component that resolves the actor and redirects with the same table, and this supersedes any inline routing added earlier. Add a route test line to `tests/http/routes.test.ts`: a pending student's login response has `home: '/status'` and a school admin's has `home: '/school'`.
+- [ ] **Step 3: Implement.** `homeFor` is a pure function that checks `isPlatformAdmin` first, then the first matching role. `checkPageAccess` is pure. `requirePageActor` is a thin wrapper that adds the cookie read and `redirect()`. In the login route, compute `home = homeFor(actor, student ? (await studentStatus(actor)).status : undefined)`. The login page navigates to `res.home`. `src/app/page.tsx` is a server component that resolves the actor and redirects with the same table, and this supersedes any inline routing added earlier. Add a route test line to `tests/http/routes.test.ts`: a pending student's login response has `home: '/status'` and a school admin's has `home: '/school'`. Modify the existing login route and `(public)/login` page in place; keep their current tests passing.
 - [ ] **Step 4: Run** the same command plus `pnpm vitest run tests/http`. Expected: PASS.
 - [ ] **Step 5: Commit:** `git commit -m "feat(web): page guard and role-based home routing"`
 
@@ -672,7 +680,7 @@ it('raw tenant read: withTenant(A) over messages, usage_daily, conversations ret
 
 **Interfaces:**
 - Consumes: the dashboards from Tasks 8 and 9, `/learn` (sub-project 3), the `/login` page, and the `/api/auth/login` route
-- Produces: `seedDashboardWorld(): Promise<{ platform: Creds; schoolAdmin: Creds; pendingStudent: Creds; removableStudent: Creds; school; branch }>` using `resetDb` and module functions (`createSchool`, `createBranch`, `createStaffUser`, `signupWithCode`, and so on). Creds are `{ username, password }` and the passwords are generated test values defined in the helper. Tests use a 390×844 mobile viewport.
+- Produces: `seedDashboardWorld(): Promise<{ platform: Creds; schoolAdmin: Creds; pendingStudent: Creds; removableStudent: Creds; school; branch }>` using `resetDb` and module functions (`createSchool`, `createBranch`, `createStaffUser`, `signupWithCode`, and so on). Creds are `{ username, password }`. Seeded users log in with `SEED_PASSWORD`; the helper gives the removable student a username and password via `SEED_PASSWORD` too. Tests use a 390×844 mobile viewport.
 
 - [ ] **Step 1: Write the failing e2e tests.**
 

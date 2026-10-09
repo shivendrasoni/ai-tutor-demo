@@ -4,7 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 export type OutlineEntry = { title: string; page: number | null };
 export type ExtractedPdf = { pageCount: number; outline: OutlineEntry[]; pages: string[] };
 
-type Item = { str: string; transform: number[]; height?: number; hasEOL?: boolean };
+type Item = { str: string; transform: number[]; height?: number };
 
 const BLANK_LINE_FACTOR = 1.8;
 
@@ -31,7 +31,7 @@ export async function extractPdf(bytes: Uint8Array): Promise<ExtractedPdf> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      const items = content.items.filter((x): x is Item => 'str' in x && Array.isArray(x.transform));
+      const items = content.items.filter((x) => 'str' in x) as Item[];
       pages.push(pageText(items));
     }
     const outline: OutlineEntry[] = [];

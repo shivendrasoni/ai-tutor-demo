@@ -26,6 +26,7 @@ import { eq } from 'drizzle-orm';
 import { closeDb, withPlatform } from '@/db/client';
 import { users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
+import { redactError } from '@/lib/redact';
 import { createPlan, listPendingSubscriptions, recordPayment } from '@/modules/enrollment';
 import {
   createBranch, createSchool, createStaffUser, hashPassword, loadActor, normalizeUsername,
@@ -200,7 +201,10 @@ export async function run(argv: string[], io: Io = defaultIo): Promise<number> {
       io.err(`Error [${e.code}]: ${e.message}${e.details ? ` ${JSON.stringify(e.details)}` : ''}`);
       return 1;
     }
-    io.err(`Error: ${(e as Error)?.message ?? String(e)}`);
+    // Unexpected errors: print a redacted summary only (Drizzle "Failed query" messages embed bound params).
+    const r = redactError(e);
+    const cause = r.cause as { code?: string; message?: string } | undefined;
+    io.err(`Error: ${r.name}: ${r.message ?? ''}${cause ? ` (${[cause.code, cause.message].filter(Boolean).join(': ')})` : ''}`);
     return 1;
   }
 }

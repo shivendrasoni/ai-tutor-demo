@@ -8,3 +8,5 @@ playwright-report
 next-env.d.ts
 .DS_Store
 coverage
+
+.env*.local

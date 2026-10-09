@@ -27,3 +27,9 @@ export async function createSession(userId: string): Promise<string> {
 export async function revokeUserSessions(tx: Tx, userId: string): Promise<void> {
   await tx.delete(sessions).where(eq(sessions.userId, userId));
 }
+
+/** Deletes the single session identified by `token` (logout). No-op for unknown tokens. */
+export async function revokeSession(token: string): Promise<void> {
+  if (typeof token !== 'string' || !token) return;
+  await withPlatform((tx) => tx.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))));
+}

@@ -117,6 +117,6 @@ export async function listPendingSubscriptions(actor: Actor): Promise<PendingRow
       .innerJoin(branches, eq(branches.id, studentProfiles.branchId))
       .innerJoin(plans, eq(plans.id, subscriptions.planId))
       .where(and(inArray(subscriptions.status, ['pending', 'lapsed']), ne(studentProfiles.status, 'removed')))
-      .orderBy(asc(subscriptions.createdAt)),
+      .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id)),
   );
 }

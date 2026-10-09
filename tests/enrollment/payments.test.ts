@@ -121,13 +121,14 @@ describe('listPendingSubscriptions', () => {
   it('lists pending and lapsed, excluding removed and active', async () => {
     let rows = await listPendingSubscriptions(seed.platform);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({
+    const rowA = rows.find((r) => r.subscriptionId === seed.a.subscriptionId)!;
+    expect(rowA).toMatchObject({
       subscriptionId: seed.a.subscriptionId, status: 'pending', studentName: 'student A',
       schoolName: 'School A', branchName: 'Branch A', grade: 8, parentName: 'Parent A',
       parentPhone: '9999999999', planName: 'Monthly', priceMinor: 49900, currency: 'INR',
     });
-    expect(rows[0].username).toMatch(/^student-A-/);
-    expect(rows[0].createdAt).toBeInstanceOf(Date);
+    expect(rowA.username).toMatch(/^student-A-/);
+    expect(rowA.createdAt).toBeInstanceOf(Date);
 
     await pay('2027-01-31T00:00:00Z');
     rows = await listPendingSubscriptions(seed.platform);

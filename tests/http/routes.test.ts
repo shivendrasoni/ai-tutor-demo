@@ -79,13 +79,20 @@ describe('auth', () => {
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/application\/json/);
-    expect(await res.json()).toEqual({ roles: ['student'] });
+    expect(await res.json()).toEqual({ roles: ['student'], isPlatformAdmin: false });
     const cookie = res.headers.get('set-cookie')!;
     expect(cookie).toMatch(/^sid=[A-Za-z0-9_-]+;/);
     expect(cookie.toLowerCase()).toContain('httponly');
     expect(cookie.toLowerCase()).toContain('samesite=lax');
     expect(cookie).toContain('Path=/');
     expect(cookie).toContain(`Max-Age=${30 * 24 * 60 * 60}`);
+  });
+
+  it('platform admin login reports isPlatformAdmin', async () => {
+    const res = await loginRoute.POST(
+      req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.platform.userId), password: SEED_PASSWORD } }),
+    );
+    expect(await res.json()).toEqual({ roles: [], isPlatformAdmin: true });
   });
 
   it('bad credentials → 401 INVALID_CREDENTIALS, body never echoes the password', async () => {
@@ -393,6 +400,30 @@ describe('handle()', () => {
     expect(res.headers.get('content-type')).toMatch(/application\/json/);
     expect(await res.json()).toEqual({ error: { code: 'INTERNAL' } });
     expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('never logs query params or the raw error (redacted console.error)', async () => {
+    const secret = '$argon2id$v=19$m=19456,t=2,p=1$c2VjcmV0c2FsdA$FAKEHASHFAKEHASH';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const drizzleLike = new Error(
+      `Failed query: insert into "users" ("username", "password_hash") values ($1, $2)\nparams: kid,${secret}`,
+      { cause: Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }) },
+    );
+    const plain = Object.assign(new Error(`boom params: ${secret}`), { params: [secret] });
+    for (const e of [drizzleLike, plain]) {
+      const res = await handle(async () => {
+        throw e;
+      })(new Request('http://localhost/x'));
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(await res.json())).not.toContain(secret);
+    }
+    const logged = JSON.stringify(spy.mock.calls);
+    expect(logged).not.toContain(secret);
+    expect(logged).not.toContain('FAKEHASH');
+    expect(logged).not.toContain('insert into');
+    expect(logged).toContain('23505');
+    expect(logged).toContain('boom');
     spy.mockRestore();
   });
 

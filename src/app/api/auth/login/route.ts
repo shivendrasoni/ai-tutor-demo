@@ -12,5 +12,5 @@ const Body = z.object({
 export const POST = handle(async (req: Request) => {
   const { username, password } = await readJson(req, Body);
   const { token, actor } = await login(username, password);
-  return json({ roles: actor.roles }, { headers: { 'set-cookie': sessionCookie(token) } });
+  return json({ roles: actor.roles, isPlatformAdmin: actor.isPlatformAdmin }, { headers: { 'set-cookie': sessionCookie(token) } });
 });

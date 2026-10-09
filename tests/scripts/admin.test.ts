@@ -1,0 +1,120 @@
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { closeDb, withPlatform } from '@/db/client';
+import { memberships, payments, studentProfiles, users } from '@/db/schema';
+import { signupWithCode } from '@/modules/enrollment';
+import { run } from '../../scripts/admin';
+import { resetDb } from '../helpers/db';
+
+beforeEach(resetDb);
+afterAll(closeDb);
+
+/** Runs the CLI in-process, capturing stdout/stderr lines. */
+async function cli(...argv: string[]) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await run(argv, { out: (s) => out.push(s), err: (s) => err.push(s) });
+  return { code, out, err, json: () => JSON.parse(out.at(-1) ?? 'null') };
+}
+
+describe('scripts/admin run()', () => {
+  it('wires every command end-to-end and never prints passwords', async () => {
+    const pa = await cli('create-platform-admin', '--username', 'Ops_Test', '--password', 'change-me-now', '--name', 'Ops');
+    expect(pa.code).toBe(0);
+    const { userId: opsId } = pa.json();
+    const [ops] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, opsId)));
+    expect(ops.username).toBe('ops_test');
+    expect(ops.isPlatformAdmin).toBe(true);
+    expect(ops.passwordHash).toMatch(/^\$argon2id\$/);
+
+    const school = await cli('create-school', '--name', 'Demo School', '--board', 'CBSE', '--as', 'ops_test');
+    expect(school.code).toBe(0);
+    const { schoolId } = school.json();
+    // Without --as a synthetic platform actor is used.
+    expect((await cli('create-school', '--name', 'Other', '--board', 'ICSE')).code).toBe(0);
+
+    const branch = await cli('create-branch', '--school', schoolId, '--name', 'Main');
+    expect(branch.code).toBe(0);
+    const { branchId, signupCode } = branch.json();
+    expect(signupCode).toMatch(/^[A-Z0-9]+$/);
+
+    const plan = await cli('create-plan', '--name', 'Monthly', '--interval', 'monthly', '--price-minor', '49900', '--currency', 'inr');
+    expect(plan.code).toBe(0);
+    const { planId } = plan.json();
+
+    const staff = await cli(
+      'create-staff', '--school', schoolId, '--branch', branchId, '--role', 'teacher',
+      '--username', 'teach_one', '--password', 'teacher-pass-1', '--name', 'Teacher One',
+    );
+    expect(staff.code).toBe(0);
+    const [m] = await withPlatform((tx) => tx.select().from(memberships).where(eq(memberships.userId, staff.json().userId)));
+    expect(m).toMatchObject({ schoolId, branchId, role: 'teacher' });
+
+    const { subscriptionId, studentUserId } = await signupWithCode({
+      code: signupCode, grade: 8, studentName: 'Kid', parentName: 'Parent', parentPhone: '9999999999',
+      planId, username: 'kid_one', password: 'kid-pass-123',
+    });
+
+    const pending = await cli('pending');
+    expect(pending.code).toBe(0);
+    expect(pending.json()).toEqual([expect.objectContaining({ subscriptionId, studentName: 'Kid', planName: 'Monthly' })]);
+
+    // record-payment requires --as.
+    const noAs = await cli('record-payment', '--subscription', subscriptionId, '--amount-minor', '49900');
+    expect(noAs.code).not.toBe(0);
+    expect(noAs.err.join('\n')).toMatch(/--as/);
+
+    const paid = await cli(
+      'record-payment', '--subscription', subscriptionId, '--amount-minor', '49900',
+      '--ref', 'UPI-1', '--paid-at', '2026-10-01T00:00:00Z', '--as', 'ops_test',
+    );
+    expect(paid.code).toBe(0);
+    expect(paid.json()).toEqual({ periodStart: '2026-10-01T00:00:00.000Z', periodEnd: '2026-11-01T00:00:00.000Z' });
+    const [pay] = await withPlatform((tx) => tx.select().from(payments));
+    expect(pay).toMatchObject({ recordedBy: opsId, externalRef: 'UPI-1', currency: 'INR', amountMinor: 49900 });
+    const [p] = await withPlatform((tx) => tx.select().from(studentProfiles).where(eq(studentProfiles.userId, studentUserId)));
+    expect(p.status).toBe('active');
+    expect((await cli('pending')).json()).toEqual([]);
+
+    const all = [pa, school, branch, plan, staff, pending, paid].flatMap((r) => [...r.out, ...r.err]).join('\n');
+    expect(all).not.toMatch(/change-me-now|teacher-pass-1/);
+  });
+
+  it('--as must name an existing platform admin', async () => {
+    const r = await cli('create-school', '--name', 'S', '--board', 'CBSE', '--as', 'nobody_here');
+    expect(r.code).not.toBe(0);
+    expect(r.err.join('\n')).toMatch(/platform admin/i);
+  });
+
+  it('DomainErrors exit non-zero with code and message; usage errors too', async () => {
+    const dup1 = await cli('create-platform-admin', '--username', 'dupe', '--password', 'long-enough-1', '--name', 'D');
+    expect(dup1.code).toBe(0);
+    const dup2 = await cli('create-platform-admin', '--username', 'DUPE', '--password', 'long-enough-1', '--name', 'D');
+    expect(dup2.code).toBe(1);
+    expect(dup2.err.join('\n')).toMatch(/USERNAME_TAKEN/);
+
+    const weak = await cli('create-platform-admin', '--username', 'weakling', '--password', 'Zq9x', '--name', 'W');
+    expect(weak.code).toBe(1);
+    expect(weak.err.join('\n')).toMatch(/WEAK_PASSWORD/);
+    expect(weak.err.join('\n')).not.toContain('Zq9x');
+
+    const badNum = await cli('create-plan', '--name', 'P', '--interval', 'monthly', '--price-minor', '12abc');
+    expect(badNum.code).toBe(1);
+    expect(badNum.err.join('\n')).toMatch(/VALIDATION/);
+
+    expect((await cli('frobnicate')).code).toBe(2);
+    expect((await cli('create-school', '--name', 'S')).code).toBe(2); // missing --board
+    expect((await cli('create-school', '--name', 'S', '--board', 'X', '--bogus', '1')).code).toBe(2);
+  });
+
+  it('reads the password from ADMIN_PASSWORD when --password is omitted', async () => {
+    process.env.ADMIN_PASSWORD = 'from-env-pass';
+    try {
+      const r = await cli('create-platform-admin', '--username', 'env_admin', '--name', 'Env');
+      expect(r.code).toBe(0);
+    } finally {
+      delete process.env.ADMIN_PASSWORD;
+    }
+    expect((await cli('create-platform-admin', '--username', 'env_admin2', '--name', 'Env')).code).toBe(2);
+  });
+});

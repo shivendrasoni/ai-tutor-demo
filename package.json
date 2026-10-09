@@ -9,7 +9,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "test:isolation": "vitest run tests/isolation",
+    "admin": "tsx scripts/admin.ts",
+    "job:lapse": "tsx scripts/lapse.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",

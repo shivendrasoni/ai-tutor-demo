@@ -124,7 +124,7 @@ const HIT_COLUMNS = sql`k.id as "chunkId", ci.id as "contentItemId", ci.title as
 export async function searchChunks(scope: StudentScope, query: string, opts: SearchOpts = {}): Promise<ChunkHit[]> {
   const requested = Math.floor(Number(opts.limit ?? DEFAULT_LIMIT));
   const limit = Math.min(50, Math.max(1, Number.isNaN(requested) ? DEFAULT_LIMIT : requested));
-  const minSimilarity = opts.minSimilarity ?? DEFAULT_MIN_SIMILARITY;
+  const minSimilarity = Number.isFinite(opts.minSimilarity) ? (opts.minSimilarity as number) : DEFAULT_MIN_SIMILARITY;
 
   const filters: SQL[] = [];
   for (const [list, column] of [
@@ -149,8 +149,11 @@ export async function searchChunks(scope: StudentScope, query: string, opts: Sea
     ],
     sql` and `,
   );
-  const hits = await withTenant(scope.schoolId, (tx) =>
-    rows<ChunkHit>(
+  const hits = await withTenant(scope.schoolId, async (tx) => {
+    // The HNSW index is global; iterative scan keeps scanning until enough rows pass the tenant/visibility filters.
+    await tx.execute(sql`set local hnsw.iterative_scan = relaxed_order`);
+    await tx.execute(sql`set local hnsw.ef_search = 100`);
+    return rows<ChunkHit>(
       tx,
       sql`select ${HIT_COLUMNS}, (1 - (k.embedding <=> ${q}::vector))::float8 as similarity
         from chunks k
@@ -160,9 +163,10 @@ export async function searchChunks(scope: StudentScope, query: string, opts: Sea
         where ${where}
         order by k.embedding <=> ${q}::vector
         limit ${limit}`,
-    ),
-  );
-  return hits.filter((h) => h.similarity >= minSimilarity);
+    );
+  });
+  // relaxed_order can return slightly out-of-order rows.
+  return hits.filter((h) => h.similarity >= minSimilarity).sort((a, b) => b.similarity - a.similarity);
 }
 
 type ChapterChunk = ChunkHit & { tokenEstimate: number };

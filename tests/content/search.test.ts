@@ -137,6 +137,19 @@ describe('searchChunks', () => {
   });
 });
 
+describe('searchChunks with other tenants dominating the index', () => {
+  it('returns all of the tenant hits even when many closer chunks belong to another school', async () => {
+    const q = 'tectonic plates earthquake fault';
+    const bItem = await seedItem(seed.b, { title: 'B quakes' });
+    await seedChunks(bItem.id, [{ title: 'B q', texts: Array.from({ length: 60 }, () => q) }]);
+    const aItem = await seedItem(seed.a, { title: 'A quakes' });
+    await seedChunks(aItem.id, [{ title: 'A q', texts: [1, 2, 3].map((i) => `tectonic plates earthquake fault line ${i}`) }]);
+    const hits = await searchChunks(scope, q, { limit: 8 });
+    expect(hits).toHaveLength(3);
+    expect(hits.every((h) => h.itemTitle === 'A quakes')).toBe(true);
+  });
+});
+
 describe('chunksForChapters', () => {
   const tokens = (h: { text: string }) => Math.ceil(h.text.length / 4);
   const big = (tag: string, i: number) => `${tag}${i} ${'x'.repeat(1990)}`; // ~500 tokens

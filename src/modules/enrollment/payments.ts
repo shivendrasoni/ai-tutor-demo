@@ -28,7 +28,7 @@ const INT4_MAX = 2147483647;
 const PaymentSchema = z.object({
   amountMinor: z.number().int().positive().max(INT4_MAX),
   currency: z.string().regex(/^[A-Z]{3}$/),
-  externalRef: z.string().min(1).optional(),
+  externalRef: z.string().trim().min(1).max(200).optional(),
   paidAt: z.date().refine((d) => !Number.isNaN(d.getTime())),
 });
 
@@ -38,6 +38,7 @@ export async function recordPayment(
   now: Date = new Date(),
 ): Promise<{ periodStart: Date; periodEnd: Date }> {
   requirePlatform(actor);
+  if (!isUuid(input.subscriptionId)) throw new DomainError('NOT_FOUND', 'Subscription not found');
   const parsed = PaymentSchema.safeParse(input);
   if (!parsed.success) {
     throw new DomainError('VALIDATION', 'Invalid payment', {
@@ -48,12 +49,9 @@ export async function recordPayment(
   if (paidAt.getTime() > now.getTime() + 5 * 60_000) {
     throw new DomainError('VALIDATION', 'paidAt cannot be in the future', { field: 'paidAt' });
   }
-  const oneYearAgo = new Date(now);
-  oneYearAgo.setUTCFullYear(oneYearAgo.getUTCFullYear() - 1);
-  if (paidAt.getTime() < oneYearAgo.getTime()) {
+  if (paidAt.getTime() < now.getTime() - 365 * 86_400_000) {
     throw new DomainError('VALIDATION', 'paidAt cannot be more than a year ago', { field: 'paidAt' });
   }
-  if (!isUuid(input.subscriptionId)) throw new DomainError('NOT_FOUND', 'Subscription not found');
 
   try {
     return await withPlatform(async (tx) => {
@@ -83,7 +81,7 @@ export async function recordPayment(
       const end = sub.current_period_end ? new Date(sub.current_period_end) : null;
       let periodStart: Date;
       let periodEnd: Date;
-      if (sub.status === 'active' && end && end.getTime() > paidAt.getTime() && sub.current_period_start) {
+      if (sub.status === 'active' && end && end.getTime() >= paidAt.getTime() && sub.current_period_start) {
         periodStart = new Date(sub.current_period_start);
         periodEnd = addInterval(end, interval);
       } else {

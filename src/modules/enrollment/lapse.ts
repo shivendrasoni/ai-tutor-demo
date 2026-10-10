@@ -1,6 +1,6 @@
 import { eq, sql, type SQL } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
-import { studentProfiles } from '@/db/schema';
+import { studentProfiles, subscriptions } from '@/db/schema';
 import type { StudentStatus } from '@/modules/tenancy/actor';
 
 /**
@@ -35,13 +35,19 @@ export async function lapseExpired(now: Date, onlyStudentId?: string): Promise<n
   });
 }
 
-/** Read-time rule: the stored status, except an active student whose period ended is lapsed (and flipped now). Null if no profile. */
+/** Read-time rule: stored 'active' with an ended period is lapsed (and flipped now); otherwise the stored status. Null if no profile. */
 export async function effectiveStudentStatus(studentUserId: string, now: Date = new Date()): Promise<StudentStatus | null> {
   const [row] = await withPlatform((tx) =>
-    tx.select({ status: studentProfiles.status }).from(studentProfiles).where(eq(studentProfiles.userId, studentUserId)),
+    tx
+      .select({ status: studentProfiles.status, periodEnd: subscriptions.currentPeriodEnd })
+      .from(studentProfiles)
+      .leftJoin(subscriptions, eq(subscriptions.studentId, studentProfiles.userId))
+      .where(eq(studentProfiles.userId, studentUserId)),
   );
   if (!row) return null;
-  if (row.status !== 'active') return row.status as StudentStatus;
-  const flipped = await lapseExpired(now, studentUserId);
-  return flipped > 0 ? 'lapsed' : 'active';
+  if (row.status === 'active' && row.periodEnd && row.periodEnd.getTime() < now.getTime()) {
+    await lapseExpired(now, studentUserId);
+    return 'lapsed';
+  }
+  return row.status as StudentStatus;
 }

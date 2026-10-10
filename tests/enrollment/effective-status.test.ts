@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { studentProfiles, subscriptions } from '@/db/schema';
 import { studentScope } from '@/modules/content';
-import { effectiveStudentStatus, recordPayment, studentStatus } from '@/modules/enrollment';
+import { effectiveStudentStatus, listStudents, recordPayment, studentStatus } from '@/modules/enrollment';
 import { homeFor } from '@/lib/home';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
@@ -73,5 +73,19 @@ describe('read-time lapse (no cron run)', () => {
     expect(await effectiveStudentStatus(seed.a.studentId, new Date(Date.now() + 60 * DAY))).toBe('lapsed');
     expect(await effectiveStudentStatus(seed.b.studentId)).toBe('pending_payment');
     expect(await effectiveStudentStatus('00000000-0000-4000-8000-000000000000')).toBeNull();
+  });
+
+  it('inconsistent state (profile active, subscription not active, period expired) is lapsed in both variants', async () => {
+    await pay(1);
+    await withPlatform((tx) => tx.update(subscriptions).set({ status: 'pending' }).where(eq(subscriptions.id, seed.a.subscriptionId)));
+    const later = new Date(Date.now() + 60 * DAY);
+    expect(await effectiveStudentStatus(seed.a.studentId, later)).toBe('lapsed');
+    const rows = await listStudents(seed.platform, { schoolId: seed.a.schoolId }, later);
+    expect(rows.find((r) => r.userId === seed.a.studentId)!.status).toBe('lapsed');
+  });
+
+  it('a null period end never lapses and does not write', async () => {
+    await withPlatform((tx) => tx.update(studentProfiles).set({ status: 'active' }).where(eq(studentProfiles.userId, seed.a.studentId)));
+    expect(await effectiveStudentStatus(seed.a.studentId, new Date(Date.now() + 999 * DAY))).toBe('active');
   });
 });

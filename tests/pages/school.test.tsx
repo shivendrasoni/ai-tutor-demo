@@ -82,6 +82,12 @@ describe('components', () => {
     expect(renderToStaticMarkup(<StudentsTable rows={[row]} canRemove />)).not.toContain('New invite link');
     expect(renderToStaticMarkup(<StudentsTable rows={[pending]} canRemove={false} />)).not.toContain('New invite link');
   });
+  it('StudentsTable offers "Reset password" only to signed-up, non-removed students', () => {
+    expect(renderToStaticMarkup(<StudentsTable rows={[row]} canRemove />)).toContain('Reset password');
+    expect(renderToStaticMarkup(<StudentsTable rows={[{ ...row, username: null }]} canRemove />)).not.toContain('Reset password');
+    expect(renderToStaticMarkup(<StudentsTable rows={[{ ...row, status: 'removed' }]} canRemove />)).not.toContain('Reset password');
+    expect(renderToStaticMarkup(<StudentsTable rows={[row]} canRemove={false} />)).not.toContain('Reset password');
+  });
   it('AddStudentForm result view shows the invite link', () => {
     const html = renderToStaticMarkup(<InviteResult url="https://x.test/invite/abc" />);
     expect(html).toContain('https://x.test/invite/abc');

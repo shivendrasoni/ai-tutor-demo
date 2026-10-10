@@ -4,7 +4,7 @@ import { closeDb, withPlatform } from '@/db/client';
 import { payments, sessions, studentProfiles, subscriptions, users } from '@/db/schema';
 import { recordPayment } from '@/modules/enrollment/payments';
 import { addInterval } from '@/modules/enrollment/periods';
-import { listStudents, removeStudent, studentStatus } from '@/modules/enrollment/students';
+import { listStudents, removeStudent, resetStudentPassword, studentStatus } from '@/modules/enrollment/students';
 import { login, resolveActor } from '@/modules/tenancy';
 import { createSession } from '@/modules/tenancy/auth/sessions';
 import { resetDb, SEED_PASSWORD, seedTwoSchools, type Seed } from '../helpers/db';
@@ -185,5 +185,44 @@ describe('studentStatus', () => {
     expect(await codeOf(studentStatus(seed.a.teacher))).toBe('FORBIDDEN');
     expect(await codeOf(studentStatus(seed.a.schoolAdmin))).toBe('FORBIDDEN');
     expect(await codeOf(studentStatus(seed.platform))).toBe('FORBIDDEN');
+  });
+});
+
+describe('resetStudentPassword', () => {
+  it('school admin sets a new password: old one stops working, new works, sessions revoked', async () => {
+    const [u] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.studentId)));
+    await createSession(seed.a.studentId);
+    await createSession(seed.a.studentId);
+    expect(await sessionCount(seed.a.studentId)).toBe(2);
+    await resetStudentPassword(seed.a.schoolAdmin, seed.a.studentId, 'brand-new-pass');
+    expect(await sessionCount(seed.a.studentId)).toBe(0);
+    expect(await codeOf(login(u.username!, SEED_PASSWORD))).toBe('INVALID_CREDENTIALS');
+    expect((await login(u.username!, 'brand-new-pass')).actor.userId).toBe(seed.a.studentId);
+  });
+
+  it('branch admin of the branch and platform admin can; the stored hash is argon2id', async () => {
+    await expect(resetStudentPassword(seed.a.branchAdmin, seed.a.studentId, 'branch-set-pass')).resolves.toBeUndefined();
+    await expect(resetStudentPassword(seed.platform, seed.a.studentId, 'platform-set-pass')).resolves.toBeUndefined();
+    const [u] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.studentId)));
+    expect(u.passwordHash).toMatch(/^\$argon2id\$/);
+  });
+
+  it('rejects weak passwords, teachers/students, other-school admins, unknown and non-student ids', async () => {
+    expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, seed.a.studentId, 'short'))).toBe('WEAK_PASSWORD');
+    expect(await codeOf(resetStudentPassword(seed.a.teacher, seed.a.studentId, 'valid-password'))).toBe('FORBIDDEN');
+    expect(await codeOf(resetStudentPassword(seed.a.student, seed.a.studentId, 'valid-password'))).toBe('FORBIDDEN');
+    expect(await codeOf(resetStudentPassword(seed.b.schoolAdmin, seed.a.studentId, 'valid-password'))).toBe('NOT_FOUND');
+    expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, seed.a.teacherId, 'valid-password'))).toBe('NOT_FOUND');
+    expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, 'nope', 'valid-password'))).toBe('NOT_FOUND');
+    // Untouched: the original password still works.
+    const [u] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.studentId)));
+    expect((await login(u.username!, SEED_PASSWORD)).actor.userId).toBe(seed.a.studentId);
+  });
+
+  it('refuses removed students and students who have not signed up yet', async () => {
+    await removeStudent(seed.a.schoolAdmin, seed.a.studentId);
+    expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, seed.a.studentId, 'valid-password'))).toBe('STUDENT_REMOVED');
+    await withPlatform((tx) => tx.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, seed.b.studentId)));
+    expect(await codeOf(resetStudentPassword(seed.b.schoolAdmin, seed.b.studentId, 'valid-password'))).toBe('VALIDATION');
   });
 });

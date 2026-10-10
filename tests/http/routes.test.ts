@@ -19,6 +19,7 @@ import * as meStatusRoute from '@/app/api/me/status/route';
 import * as meRoute from '@/app/api/me/route';
 import * as studentsRoute from '@/app/api/school/students/route';
 import * as removeRoute from '@/app/api/school/students/[id]/remove/route';
+import * as passwordRoute from '@/app/api/school/students/[id]/password/route';
 import * as reinviteRoute from '@/app/api/school/students/[id]/invite/route';
 import * as branchCodeRoute from '@/app/api/school/branches/[id]/code/route';
 import * as pendingRoute from '@/app/api/platform/pending/route';
@@ -381,6 +382,26 @@ describe('school students', () => {
     expect(newToken).not.toBe(oldToken);
     await expectError(await inviteRoute.GET(req('GET', '/x'), ctx({ token: oldToken })), 410, 'INVITE_INVALID');
     expect((await inviteRoute.GET(req('GET', '/x'), ctx({ token: newToken }))).status).toBe(200);
+  });
+
+  it('password route resets a student password; weak/cross-school/teacher/unauth are refused', async () => {
+    const cookie = await sidFor(seed.a.schoolAdmin.userId);
+    const body = { password: 'route-new-pass' };
+    await expectError(await passwordRoute.POST(req('POST', '/x', { body }), ctx({ id: seed.a.studentId })), 401, 'UNAUTHENTICATED');
+    await expectError(await passwordRoute.POST(req('POST', '/x', { cookie: await sidFor(seed.a.teacher.userId), body }), ctx({ id: seed.a.studentId })), 403, 'FORBIDDEN');
+    await expectError(await passwordRoute.POST(req('POST', '/x', { cookie: await sidFor(seed.b.schoolAdmin.userId), body }), ctx({ id: seed.a.studentId })), 404, 'NOT_FOUND');
+    const weak = await passwordRoute.POST(req('POST', '/x', { cookie, body: { password: 'short' } }), ctx({ id: seed.a.studentId }));
+    await expectError(weak, 400, 'WEAK_PASSWORD');
+    await expectError(await passwordRoute.POST(req('POST', '/x', { cookie, body: {} }), ctx({ id: seed.a.studentId })), 400, 'VALIDATION');
+
+    const studentCookie = await loginCookie(seed.a.studentId);
+    const res = await passwordRoute.POST(req('POST', '/x', { cookie, body }), ctx({ id: seed.a.studentId }));
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(await res.json())).not.toContain('route-new-pass');
+    expect((await meRoute.GET(req('GET', '/api/me', { cookie: studentCookie }))).status).toBe(401); // sessions revoked
+    const username = await usernameOf(seed.a.studentId);
+    expect((await loginRoute.POST(req('POST', '/api/auth/login', { body: { username, password: SEED_PASSWORD } }))).status).toBe(401);
+    expect((await loginRoute.POST(req('POST', '/api/auth/login', { body: { username, password: 'route-new-pass' } }))).status).toBe(200);
   });
 
   it('branch code rotate returns a new code; enable/disable return no code; bad action → 400', async () => {

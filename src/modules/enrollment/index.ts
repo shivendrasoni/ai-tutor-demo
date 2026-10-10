@@ -4,4 +4,4 @@ export { checkUsername, signupWithCode, validateCredentials, type SignupInput } 
 export { completeInvite, getInvite, INVITE_TTL_MS, manualAddStudent, reissueInvite } from './invites';
 export { listPendingSubscriptions, recordPayment, type PendingRow } from './payments';
 export { effectiveStudentStatus, lapseExpired } from './lapse';
-export { listStudents, removeStudent, studentStatus, type StudentRow } from './students';
+export { listStudents, removeStudent, resetStudentPassword, studentStatus, type StudentRow } from './students';

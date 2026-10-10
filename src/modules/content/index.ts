@@ -1,5 +1,6 @@
 export {
   MAX_UPLOAD_BYTES,
+  STUCK_INGEST_AFTER_MS,
   deleteContent,
   listContent,
   listUploadTargets,

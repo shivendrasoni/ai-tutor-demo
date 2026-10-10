@@ -15,6 +15,9 @@ const LABEL: Record<IngestStatus, string> = {
 };
 const SCOPE: Record<string, string> = { school: 'Whole school', branch: 'Branch', section: 'Section' };
 
+/** Queued/processing for over 15 min: Retry is offered; the server only accepts it when no job is live. */
+export const isStuckCandidate = (i: Pick<ContentItemRow, 'status' | 'createdAt'>, now = Date.now()) =>
+  (i.status === 'queued' || i.status === 'processing') && now - new Date(i.createdAt).getTime() > 15 * 60_000;
 const inFlight = (items: ContentItemRow[]) => items.some((i) => i.status === 'queued' || i.status === 'processing');
 
 async function post(path: string, body: unknown): Promise<boolean> {
@@ -115,7 +118,7 @@ export default function ContentList({ initialItems, toggleBranchId }: Props) {
                 <p className={styles.meta}>OCR skipped on {item.ocrSkippedPages} pages</p>
               )}
               <div className={styles.actions}>
-                {item.status === 'failed' && (
+                {(item.status === 'failed' || isStuckCandidate(item)) && (
                   <button type="button" className={styles.secondary} disabled={busy} onClick={() => retry(item.id)}>
                     Retry
                   </button>

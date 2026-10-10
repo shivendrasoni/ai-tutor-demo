@@ -4,7 +4,7 @@ Later plans must use these real names. They take precedence over plan 2's text w
 
 ## Public exports of `src/modules/content/index.ts`
 - Service: `MAX_UPLOAD_BYTES`, `uploadContent`, `listContent`, `listUploadTargets`, `retryIngest`, `setExclusion`, `deleteContent`; types `ContentItemRow`, `ContentKind`, `ContentScope`, `IngestStatus`, `UploadInput`, `UploadTargets`
-- Ingest and queue: `runIngest`, `INGEST_QUEUE`, `InMemoryQueue`, `startWorker`; types `IngestDeps`, `IngestJob`, `IngestQueue`
+- Ingest and queue: `runIngest`, `INGEST_QUEUE`, `InMemoryQueue`, `startWorker(deps?, extraQueues?)`, `STUCK_INGEST_AFTER_MS`; types `IngestDeps`, `IngestJob`, `IngestQueue`
 - Deps: `getDeps` (lazy, per-member memoised: `blobs`, `embedder`, `ocr`, `queue`; destructure only what you need), `setDepsForTest`; type `ContentDeps`
 - Adapters: `FakeEmbedder`, `LocalBlobStore`; types `Embedder`, `OcrExtractor`, `BlobStore`
 - Student read path: `studentScope`, `visibleContent`, `listVisibleSubjects`, `listVisibleChapters`, `searchChunks`, `chunksForChapters`; types `ChunkHit`, `SearchOpts`, `StudentScope`, `VisibleChapter`, `VisibleItem`
@@ -20,7 +20,10 @@ Later plans must use these real names. They take precedence over plan 2's text w
 
 ## Worker
 - Run with `pnpm worker` (`tsx src/worker.ts`). It loads `.env` through `src/lib/load-env.ts`, which must remain its first import because `@/db/client` builds its pools at import time.
-- Queue `ingest`: `retryLimit: 3`, `retryBackoff: true`, `expireInSeconds: 3600`.
+- Queue `ingest`: `policy: 'stately'` (`singletonKey = contentItemId`), `retryLimit: 3`, `retryBackoff: true`, `expireInSeconds: 3600`.
+- Queue policy migration (worker only): `startBoss`/`startWorker` call `migrateQueuePolicies` under a Postgres advisory lock. A mismatched queue is dropped and recreated only if it has no created/retry/active job; otherwise an error is logged and the old queue is kept. The web's send-only boss only does idempotent `createQueue` (warns on mismatch, never drops).
+- `IngestQueue` has `hasLiveJob(contentItemId)`. `PgBossQueue.enqueue` throws when `send` returns null (stately dedupe) and no created/retry/active job exists for the item, so the caller marks the item failed.
+- `retryIngest` also accepts a `queued`/`processing` item older than 15 min (`STUCK_INGEST_AFTER_MS`, by `created_at`) that has no live job (a lost job); the content list shows Retry for such items. Otherwise it stays VALIDATION.
 
 ## Requirements and rules
 - pgvector 0.8 or later (the search uses `hnsw.iterative_scan`). The docker image is `pgvector/pgvector:pg16`.

@@ -233,12 +233,20 @@ export async function deleteContent(actor: Actor, itemId: string): Promise<void>
   }
 }
 
+/** A queued/processing item this old with no live job lost its job (e.g. a queue was recreated); retry may re-enqueue it. */
+export const STUCK_INGEST_AFTER_MS = 15 * 60_000;
+
+/** Failed items can always be retried; queued/processing ones only when stuck (old and with no live job). */
 export async function retryIngest(actor: Actor, itemId: string): Promise<void> {
   const job = await runAs(actor, async (tx) => {
     const item = await loadItem(tx, itemId);
     await assertCanManageTarget(tx, actor, targetOf(item));
     if (item.ingestStatus !== 'failed') {
-      throw new DomainError('VALIDATION', 'Only failed items can be retried', { field: 'status' });
+      const inFlight = item.ingestStatus === 'queued' || item.ingestStatus === 'processing';
+      const old = Date.now() - item.createdAt.getTime() > STUCK_INGEST_AFTER_MS;
+      if (!inFlight || !old || (await getDeps().queue.hasLiveJob(item.id))) {
+        throw new DomainError('VALIDATION', 'Only failed or stuck items can be retried', { field: 'status' });
+      }
     }
     await tx.update(contentItems).set({ ingestStatus: 'queued', ingestError: null }).where(eq(contentItems.id, item.id));
     return { contentItemId: item.id, schoolId: item.schoolId };

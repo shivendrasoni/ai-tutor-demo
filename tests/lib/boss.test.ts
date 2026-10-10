@@ -26,16 +26,29 @@ describe('shared send-only boss', () => {
   });
 });
 
-describe('ensureQueue', () => {
-  it('recreates a queue whose policy differs (pg-boss cannot change policy in place)', async () => {
+describe('ensureQueue (send-only path)', () => {
+  it('never deletes: a policy mismatch only warns and leaves the queue alone', async () => {
     const calls: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const boss = {
       getQueue: async () => ({ policy: 'standard' }),
       deleteQueue: async () => void calls.push('delete'),
       createQueue: async () => void calls.push('create'),
     };
     await ensureQueue(boss as never, 'q', { policy: 'stately' });
-    expect(calls).toEqual(['delete', 'create']);
+    expect(calls).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('policy standard'));
+    warn.mockRestore();
+  });
+  it('creates a missing queue idempotently', async () => {
+    const calls: string[] = [];
+    const boss = {
+      getQueue: async () => null,
+      deleteQueue: async () => void calls.push('delete'),
+      createQueue: async () => void calls.push('create'),
+    };
+    await ensureQueue(boss as never, 'q', { policy: 'stately' });
+    expect(calls).toEqual(['create']);
   });
   it('leaves a matching queue alone', async () => {
     const calls: string[] = [];

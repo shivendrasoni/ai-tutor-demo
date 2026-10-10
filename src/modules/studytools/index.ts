@@ -16,7 +16,7 @@ export {
 } from './artifacts';
 export { handleGenerateJob } from './generate';
 export { handleGradeJob } from './grading';
-export { PgBossQueue, GRADE_CONCURRENCY, GENERATE_CONCURRENCY, registerStudyToolsWorkers, getStudyQueue, setStudyQueue, type GenerateJob, type GradeJob, type JobMeta, type StudyQueue } from './queue';
+export { PgBossQueue, STUDY_QUEUE_SPECS, GRADE_CONCURRENCY, GENERATE_CONCURRENCY, registerStudyToolsWorkers, getStudyQueue, setStudyQueue, type GenerateJob, type GradeJob, type JobMeta, type StudyQueue } from './queue';
 export { defaultPatternKey, getPattern, listExamPatterns, type ExamPatternRow, type PatternSection } from './patterns';
 export type { ArtifactType } from './schemas';
 export { getAttempt, saveAnswers, startAttempt, submitAttempt, type AttemptView, type ReviewQuestion, type StartedAttempt } from './attempts';

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { expect, type Page } from '@playwright/test';
 import { withPlatform } from '@/db/client';
-import { users } from '@/db/schema';
+import { payments, users } from '@/db/schema';
 import { signupWithCode } from '@/modules/enrollment';
 import { resetDb, SEED_PASSWORD, seedTwoSchools } from '../../tests/helpers/db';
 
@@ -48,3 +48,11 @@ export async function login(page: Page, c: Creds): Promise<void> {
 }
 
 export { expect };
+
+/** Amounts (minor units) of every payment recorded for the subscription. */
+export async function paymentAmounts(subscriptionId: string): Promise<number[]> {
+  const rows = await withPlatform((tx) =>
+    tx.select({ a: payments.amountMinor }).from(payments).where(eq(payments.subscriptionId, subscriptionId)),
+  );
+  return rows.map((r) => r.a);
+}

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login, seedDashboardWorld } from './helpers/seed';
+import { login, paymentAmounts, seedDashboardWorld } from './helpers/seed';
 
 /*
  * Dashboard flows. Each test re-seeds (resetDb + module helpers) so they are independent.
@@ -15,6 +15,16 @@ test.beforeEach(async () => {
 });
 
 test('platform admin records a payment (typed amount wins) and the student reaches /learn', async ({ page, browser }) => {
+  // Before payment the student is only pending: login lands on /status, so /learn later proves activation.
+  const pendingCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const pending = await pendingCtx.newPage();
+    await login(pending, world.pendingStudent);
+    await expect(pending).toHaveURL(/\/status$/);
+  } finally {
+    await pendingCtx.close();
+  }
+
   await login(page, world.platform);
   await expect(page).toHaveURL(/\/platform$/);
   await page.goto('/platform/payments');
@@ -23,6 +33,7 @@ test('platform admin records a payment (typed amount wins) and the student reach
   await row.getByLabel(/Amount/).fill('450.50'); // typed amount differs from the plan price
   await row.getByRole('button', { name: 'Record payment' }).click();
   await expect(page.getByText(world.pendingStudent.username)).toHaveCount(0); // left the pending queue
+  expect(await paymentAmounts(world.seed.a.subscriptionId)).toEqual([45050]); // the typed amount, not the plan price
 
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   try {

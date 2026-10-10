@@ -105,6 +105,36 @@ describe('queue policy migration', () => {
   });
 });
 
+describe('re-check before the drop', () => {
+  it('skips the drop when a job lands between the first count and deleteQueue', async () => {
+    const n = qname();
+    await boss.createQueue(n, { policy: 'standard' });
+    let counts = 0;
+    const racing = new Proxy(boss, {
+      get(t, k) {
+        if (k === 'getDb') {
+          return () => ({
+            executeSql: async (sql: string, params?: unknown[]) => {
+              // A web send arrives right after the first (empty) count.
+              if (sql.includes('count(*)') && ++counts === 2) await t.send(n, { late: 1 });
+              return t.getDb().executeSql(sql, params);
+            },
+          });
+        }
+        const v = Reflect.get(t, k);
+        return typeof v === 'function' ? v.bind(t) : v;
+      },
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await migrateQueuePolicies(racing, [{ name: n, options: STATELY }]);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining(n));
+    err.mockRestore();
+    expect(counts).toBe(2);
+    expect(await policyOf(n)).toBe('standard');
+    expect(await jobCount(n)).toBe(1);
+  });
+});
+
 describe('lock connection failure', () => {
   it('aborts the migration cleanly (rejects, no drop) instead of crashing on an unhandled client error', async () => {
     const n = qname();

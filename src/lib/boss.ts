@@ -71,6 +71,13 @@ export async function ensureQueue(
 const MIGRATION_LOCK_KEY = 'tutor:pgboss-queue-policy-migration';
 const LIVE_STATES = `('created','retry','active')`;
 
+async function liveJobCount(boss: Pick<PgBoss, 'getDb'>, name: string): Promise<number> {
+  const { rows } = await boss
+    .getDb()
+    .executeSql(`select count(*)::int as n from pgboss.job where name = $1 and state in ${LIVE_STATES}`, [name]);
+  return rows[0].n as number;
+}
+
 /**
  * Worker startup only. Under a Postgres advisory lock (so concurrent workers serialize), creates missing queues and
  * drops and recreates a queue whose policy differs, but only when it has no job in created/retry/active. Otherwise it
@@ -105,17 +112,18 @@ export async function migrateQueuePolicies(
         continue;
       }
       if (existing.policy === wanted) continue;
-      const { rows } = await boss
-        .getDb()
-        .executeSql(`select count(*)::int as n from pgboss.job where name = $1 and state in ${LIVE_STATES}`, [name]);
-      if (rows[0].n > 0) {
+      let live = await liveJobCount(boss, name);
+      // Re-check immediately before the drop: a web `send` may have landed since the first count. This narrows the
+      // send-vs-drop window to the gap between this count and `deleteQueue`; it cannot close it (see the deploy notes).
+      if (live === 0) live = await liveJobCount(boss, name);
+      if (live > 0) {
         console.error(
-          `[pg-boss] NOT migrating queue ${name} (policy ${existing.policy} -> ${wanted}): ${rows[0].n} live job(s). Keeping the old queue; drain it and restart the worker.`,
+          `[pg-boss] NOT migrating queue ${name} (policy ${existing.policy} -> ${wanted}): ${live} live job(s). Keeping the old queue; drain it and restart the worker.`,
         );
         continue;
       }
-      console.warn(`[pg-boss] recreating empty queue ${name}: policy ${existing.policy} -> ${wanted}`);
       await boss.deleteQueue(name);
+      console.warn(`[pg-boss] recreated empty queue ${name}: policy ${existing.policy} -> ${wanted}`);
       await boss.createQueue(name, options);
     }
   } finally {

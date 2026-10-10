@@ -242,7 +242,7 @@ describe('retryIngest recovery of stuck items', () => {
     withPlatform((tx) =>
       tx
         .update(contentItems)
-        .set({ createdAt: new Date(Date.now() - minutes * 60_000) })
+        .set({ updatedAt: new Date(Date.now() - minutes * 60_000) })
         .where(eq(contentItems.id, id)),
     );
   const setStatus = (id: string, ingestStatus: string) =>
@@ -258,6 +258,23 @@ describe('retryIngest recovery of stuck items', () => {
       expect(await getItem(id)).toMatchObject({ ingestStatus: 'queued', ingestError: null });
       expect(queue.jobs).toEqual([{ contentItemId: id, schoolId: seed.a.schoolId }]);
     }
+  });
+
+  it('measures staleness from updatedAt: an old upload that was just re-queued is refused', async () => {
+    const { id } = await up(seed.a.schoolAdmin);
+    queue.jobs.length = 0;
+    await withPlatform((tx) =>
+      tx
+        .update(contentItems)
+        .set({ createdAt: new Date(Date.now() - 999 * 60_000), updatedAt: new Date() })
+        .where(eq(contentItems.id, id)),
+    );
+    await expect(retryIngest(seed.a.schoolAdmin, id)).rejects.toMatchObject({ code: 'VALIDATION' });
+    await age(id, 16);
+    await retryIngest(seed.a.schoolAdmin, id);
+    // The re-queue bumped updatedAt, so it is not retryable again right away.
+    queue.jobs.length = 0;
+    await expect(retryIngest(seed.a.schoolAdmin, id)).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 
   it('is refused while a job is live, or while the item is younger than 15 min', async () => {

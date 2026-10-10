@@ -22,6 +22,8 @@ What the mocks do:
 - Routing decider: a keyword heuristic stands in for Jev. OCR returns a placeholder for pages without a text layer. Embeddings use the fake embedder unless `EMBEDDER` says otherwise.
 - Mock models cost 0, but their tokens count toward the daily token budget.
 
+**Warning:** `AI_MOCK=1`, `LLM_STANDARD_MODEL`/`LLM_ADVANCED_MODEL` set to `mock/...`, and `DECIDER=mock` are explicit mock opt-ins that apply even in production. Never set them on a real deployment.
+
 A console line ("AI mock mode: ...") is logged once per process when mock mode is used.
 
 ### Switching to real providers

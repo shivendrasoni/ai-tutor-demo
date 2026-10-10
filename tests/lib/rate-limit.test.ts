@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { closeDb, withPlatform } from '@/db/client';
 import { rateLimits } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
-import { clientIp, enforce, hit, purgeRateLimits, refund } from '@/lib/rate-limit';
+import { clientIp, enforce, hit, purgeRateLimits, refund, resetClientIpWarning } from '@/lib/rate-limit';
 import { resetDb } from '../helpers/db';
 
 beforeEach(resetDb);
@@ -84,6 +84,31 @@ describe('refund / enforce / purge / clientIp', () => {
     it('0 ignores the header entirely', () => {
       vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
       expect(clientIp(xff('1.2.3.4'))).toBe('unknown');
+    });
+    it('warns once per process when proxies are trusted but x-forwarded-for is missing, without header values', () => {
+      resetClientIpWarning();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        expect(clientIp(r({ 'x-real-ip': '9.9.9.9' }))).toBe('unknown');
+        expect(clientIp(r({}))).toBe('unknown');
+        expect(warn).toHaveBeenCalledOnce();
+        expect(String(warn.mock.calls[0][0])).toContain('TRUSTED_PROXY_HOPS');
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('9.9.9.9');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+    it('does not warn with TRUSTED_PROXY_HOPS=0 or when the header is present', () => {
+      resetClientIpWarning();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        clientIp(xff('1.2.3.4'));
+        vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
+        clientIp(r({}));
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
     });
     it('an invalid value falls back to 1', () => {
       vi.stubEnv('TRUSTED_PROXY_HOPS', 'abc');

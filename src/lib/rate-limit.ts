@@ -72,12 +72,28 @@ function trustedProxyHops(): number {
   return Number.isInteger(n) && n >= 0 ? n : 1;
 }
 
+let warnedNoForwardedFor = false;
+/** Test seam: re-arms the once-per-process missing-header warning. */
+export function resetClientIpWarning(): void {
+  warnedNoForwardedFor = false;
+}
+
 /** Client IP from x-forwarded-for per TRUSTED_PROXY_HOPS (a header shorter than the hop count yields its left-most entry), else 'unknown'. */
 export function clientIp(req: Request): string {
   const hops = trustedProxyHops();
   if (hops === 0) return 'unknown';
   const parts = (req.headers.get('x-forwarded-for') ?? '').split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) return 'unknown';
+  if (parts.length === 0) {
+    // A trusted proxy is configured but sent no x-forwarded-for: likely a misconfiguration (every client then shares one
+    // rate-limit bucket). Once per process; never logs header values.
+    if (!warnedNoForwardedFor) {
+      warnedNoForwardedFor = true;
+      console.warn(
+        `[rate-limit] TRUSTED_PROXY_HOPS=${hops} but a request had no x-forwarded-for header; client IPs are 'unknown' and share one rate-limit bucket. Check the proxy setup or set TRUSTED_PROXY_HOPS=0.`,
+      );
+    }
+    return 'unknown';
+  }
   return parts[Math.max(0, parts.length - hops)];
 }
 

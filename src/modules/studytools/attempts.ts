@@ -63,10 +63,53 @@ async function loadOwn(tx: Tx, actor: Actor, attemptId: string, lock: boolean): 
   return { attempt, artifact };
 }
 
+const isExpired = (art: ArtifactRow, a: AttemptRow): boolean => {
+  const d = deadlineOf(art, a.startedAt);
+  return d !== null && now().getTime() > d.getTime() + GRACE_MS;
+};
+
+/**
+ * Scores an `in_progress` attempt and moves it to `grading` (or `graded` when nothing needs the grader). The caller holds
+ * the attempt row lock. MCQs are scored, blank subjective answers score 0, answered ones are returned as `jobs`.
+ */
+async function closeAttempt(tx: Tx, attempt: AttemptRow, artifact: ArtifactRow, submittedAt: Date): Promise<{ status: 'grading' | 'graded'; jobs: string[] }> {
+  const answers = (attempt.answers ?? {}) as Answers;
+  const results: Results = {};
+  const jobs: string[] = [];
+  for (const q of flattenQuestions(artifact.content)) {
+    const answer = answers[q.id];
+    if (q.type === 'mcq') {
+      results[q.id] = scoreMcq(q, answer);
+    } else if (typeof answer === 'string' && answer.trim() !== '') {
+      jobs.push(q.id);
+    } else {
+      results[q.id] = { score: 0, maxScore: q.marks };
+    }
+  }
+  await tx.update(attempts).set({ status: 'grading', submittedAt, results }).where(eq(attempts.id, attempt.id));
+  const finalized = await finalizeAttempt(tx, attempt.id);
+  return { status: finalized ? 'graded' : 'grading', jobs };
+}
+
+/** Enqueues grade jobs after the closing transaction committed; a failed enqueue scores the pending questions 0 for review. */
+async function dispatchGradeJobs(schoolId: string, attemptId: string, jobs: string[], status: 'grading' | 'graded'): Promise<'grading' | 'graded'> {
+  if (jobs.length === 0) return status;
+  try {
+    await getStudyQueue().enqueueGrade(jobs.map((questionId) => ({ attemptId, schoolId, questionId })));
+  } catch (e) {
+    console.error('[studytools] grade enqueue failed', redactError(e));
+    // Nothing will grade these questions: score them 0 for review so the attempt still finalizes.
+    await failPendingQuestions(schoolId, attemptId);
+    return 'graded';
+  }
+  return status;
+}
+
 export async function startAttempt(actor: Actor, artifactId: string): Promise<{ attemptId: string; startedAt: Date; deadline: Date | null }> {
   const scope = await studentScope(actor);
   if (!UUID_RE.test(artifactId)) throw notFound();
-  return withTenant(scope.schoolId, async (tx) => {
+  const closed: { attemptId: string; jobs: string[]; status: 'grading' | 'graded' }[] = [];
+  const started = await withTenant(scope.schoolId, async (tx) => {
     // Lock the artifact row so concurrent starts resume the same attempt instead of creating two.
     const [art] = await tx.select().from(artifacts).where(and(eq(artifacts.id, artifactId), eq(artifacts.studentId, actor.userId))).for('update');
     if (!art) throw notFound();
@@ -76,10 +119,14 @@ export async function startAttempt(actor: Actor, artifactId: string): Promise<{ 
       .select()
       .from(attempts)
       .where(and(eq(attempts.artifactId, artifactId), eq(attempts.studentId, actor.userId), eq(attempts.status, 'in_progress')))
-      .orderBy(desc(attempts.startedAt));
+      .orderBy(desc(attempts.startedAt))
+      .for('update');
     for (const o of open) {
       const d = deadlineOf(art, o.startedAt);
-      if (!d || now().getTime() <= d.getTime() + GRACE_MS) return { attemptId: o.id, startedAt: o.startedAt, deadline: d };
+      if (!isExpired(art, o)) return { attemptId: o.id, startedAt: o.startedAt, deadline: d };
+      // Expired and never submitted: close it at its deadline so it gets scored instead of lingering.
+      const c = await closeAttempt(tx, o, art, d!);
+      closed.push({ attemptId: o.id, ...c });
     }
     const startedAt = now();
     const [row] = await tx
@@ -88,6 +135,8 @@ export async function startAttempt(actor: Actor, artifactId: string): Promise<{ 
       .returning({ id: attempts.id });
     return { attemptId: row!.id, startedAt, deadline: deadlineOf(art, startedAt) };
   });
+  for (const c of closed) await dispatchGradeJobs(scope.schoolId, c.attemptId, c.jobs, c.status);
+  return started;
 }
 
 function validateAnswers(questions: StoredQuestion[], answers: unknown): Answers {
@@ -125,37 +174,21 @@ export async function submitAttempt(actor: Actor, attemptId: string): Promise<{ 
     const { attempt, artifact } = await loadOwn(tx, actor, attemptId, true);
     if (attempt.status !== 'in_progress') return { status: attempt.status as 'grading' | 'graded', jobs: [] as string[], already: true };
     assertNotExpired(artifact, attempt);
-
-    const answers = (attempt.answers ?? {}) as Answers;
-    const results: Results = {};
-    const jobs: string[] = [];
-    for (const q of flattenQuestions(artifact.content)) {
-      const answer = answers[q.id];
-      if (q.type === 'mcq') {
-        results[q.id] = scoreMcq(q, answer);
-      } else if (typeof answer === 'string' && answer.trim() !== '') {
-        jobs.push(q.id);
-      } else {
-        results[q.id] = { score: 0, maxScore: q.marks };
-      }
-    }
-    await tx.update(attempts).set({ status: 'grading', submittedAt: now(), results }).where(eq(attempts.id, attemptId));
-    const finalized = await finalizeAttempt(tx, attemptId);
-    return { status: finalized ? ('graded' as const) : ('grading' as const), jobs, already: false };
+    return { ...(await closeAttempt(tx, attempt, artifact, now())), already: false };
   });
 
   if (outcome.already && outcome.status === 'grading') await recoverStuckAttempt(scope.schoolId, attemptId);
-  if (outcome.jobs.length > 0) {
-    try {
-      await getStudyQueue().enqueueGrade(outcome.jobs.map((questionId) => ({ attemptId, schoolId: scope.schoolId, questionId })));
-    } catch (e) {
-      console.error('[studytools] grade enqueue failed', redactError(e));
-      // Nothing will grade these questions: score them 0 for review so the attempt still finalizes.
-      await failPendingQuestions(scope.schoolId, attemptId);
-      return { status: 'graded' };
-    }
-  }
-  return { status: outcome.status };
+  return { status: await dispatchGradeJobs(scope.schoolId, attemptId, outcome.jobs, outcome.status) };
+}
+
+/** Closes the student's own attempt when it is still `in_progress` past its deadline plus grace (submittedAt = deadline). */
+async function closeIfExpired(actor: Actor, schoolId: string, attemptId: string): Promise<void> {
+  const out = await withTenant(schoolId, async (tx) => {
+    const { attempt, artifact } = await loadOwn(tx, actor, attemptId, true);
+    if (attempt.status !== 'in_progress' || !isExpired(artifact, attempt)) return null;
+    return closeAttempt(tx, attempt, artifact, deadlineOf(artifact, attempt.startedAt)!);
+  });
+  if (out) await dispatchGradeJobs(schoolId, attemptId, out.jobs, out.status);
 }
 
 const num = (v: string | null): number | undefined => (v == null ? undefined : Number(v));
@@ -187,6 +220,10 @@ export async function getAttempt(actor: Actor, attemptId: string): Promise<Attem
   const scope = await studentScope(actor);
   const load = () => withTenant(scope.schoolId, (tx) => loadOwn(tx, actor, attemptId, false));
   let loaded = await load();
+  if (loaded.attempt.status === 'in_progress' && isExpired(loaded.artifact, loaded.attempt)) {
+    await closeIfExpired(actor, scope.schoolId, attemptId);
+    loaded = await load();
+  }
   if (loaded.attempt.status === 'grading') {
     await recoverStuckAttempt(scope.schoolId, attemptId); // best effort; no-op until the attempt looks stuck
     loaded = await load();

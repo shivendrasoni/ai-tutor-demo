@@ -142,6 +142,53 @@ describe('saveAnswers', () => {
   });
 });
 
+describe('expired in-progress attempts are closed automatically', () => {
+  const DEADLINE = new Date(T0.getTime() + 120 * 60_000);
+  const expired = () => setNow(() => new Date(DEADLINE.getTime() + GRACE + 1000));
+  const begin = async (answers: Record<string, number | string>) => {
+    setNow(() => T0);
+    const id = await start(mockId);
+    await saveAnswers(student, id, answers);
+    rec.current.grade.length = 0;
+    return id;
+  };
+
+  it('getAttempt auto-submits at the deadline: MCQ scored, answered subjective enqueued, blanks score 0', async () => {
+    const id = await begin({ A1: 1, A2: 0, B1: 'my answer' });
+    expired();
+    const v = await getAttempt(student, id);
+    expect(v.status).toBe('grading');
+    expect(v.submittedAt).toEqual(DEADLINE);
+    expect(v.results!.A1).toMatchObject({ score: 1, correct: true });
+    expect(v.results!.A2).toMatchObject({ score: 0, correct: false });
+    expect(v.results!.B2).toMatchObject({ score: 0 }); // blank subjective
+    expect(v.results!.B1).toBeUndefined(); // waiting for the grader
+    expect(rec.current.grade.map((j) => j.questionId)).toEqual(['B1']);
+    await getAttempt(student, id);
+    expect(rec.current.grade).toHaveLength(1); // closing happens once
+  });
+
+  it('with nothing subjective answered the attempt is graded straight away with the computed score', async () => {
+    const id = await begin({ A1: 1, A2: 1, A3: 0 });
+    expired();
+    const v = await getAttempt(student, id);
+    expect(v).toMatchObject({ status: 'graded', score: 2, maxScore: 50 });
+    expect(rec.current.grade).toHaveLength(0);
+  });
+
+  it('startAttempt closes the expired attempt (as graded/grading) and creates a fresh one', async () => {
+    const old = await begin({ A1: 1, B1: 'x' });
+    expired();
+    const fresh = await startAttempt(student, mockId);
+    expect(fresh.attemptId).not.toBe(old);
+    const o = await rowOf(old);
+    expect(o.status).toBe('grading');
+    expect(o.submittedAt).toEqual(DEADLINE);
+    expect(rec.current.grade.map((j) => j.attemptId)).toEqual([old]);
+    expect((await rowOf(fresh.attemptId)).status).toBe('in_progress');
+  });
+});
+
 describe('submitAttempt', () => {
   it('MCQ-only test finalizes immediately as graded with exact score and by_chapter', async () => {
     const mcqOnly = (await insertArtifact(seed.a.schoolId, student.userId!, subjectId, { content: withChunks({ ...practice(6), questions: practice(6).questions.map((q, i) => ({ ...q, type: 'mcq', options: ['a', 'b', 'c', 'd'], correctIndex: 1, id: `q${i}`, marks: 1 })) }) })).id;

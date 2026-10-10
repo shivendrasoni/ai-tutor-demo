@@ -16,7 +16,7 @@ const optionalEmail = z.preprocess(
 );
 
 const SignupSchema = z.object({
-  code: z.string().max(64),
+  code: z.string().trim().min(1).max(32),
   grade: z.number().int().min(5).max(12),
   sectionId: z.uuid().optional(),
   studentName: z.string().trim().min(1).max(200),

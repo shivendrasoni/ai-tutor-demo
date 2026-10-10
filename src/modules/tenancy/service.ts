@@ -1,4 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { withPlatform, withTenant, type Tx } from '@/db/client';
 import { branches, memberships, schools, sections, subjects, teacherAssignments, users } from '@/db/schema';
 import { isUniqueViolation } from '@/db/pgerror';
@@ -204,11 +205,18 @@ export async function createStaffUser(
   assert(allowed);
   const username = validateCredentials(input.username, input.password);
   const name = cleanName(input.name, 'Name');
-  const email = input.email?.trim() || null;
+  const emailRaw = input.email?.trim() || undefined;
+  if (emailRaw !== undefined && !z.email().max(254).safeParse(emailRaw).success) {
+    throw new DomainError('VALIDATION', 'Invalid email');
+  }
+  const email = emailRaw ?? null;
+  if (!isUuid(input.schoolId)) throw notFound('School');
   const passwordHash = await hashPassword(input.password);
 
+  // Runs under the school's RLS context (defence in depth): app_user may insert into the global users table,
+  // and the membership insert is checked by the tenant policy, so one atomic transaction is enough.
   const userId = await withUsernameTakenHandling(username, () =>
-    withPlatform(async (tx) => {
+    withTenant(input.schoolId, async (tx) => {
       await assertSchoolExists(tx, input.schoolId);
       if (input.branchId !== null) {
         const [b] = isUuid(input.branchId)
@@ -318,6 +326,8 @@ export async function listTeachers(actor: Actor, schoolId?: string): Promise<Tea
   } else {
     assert(actor.schoolId !== null);
     scope = actor.schoolId;
+    // fail closed: a branch_admin without a branch must never fall back to the whole school
+    if (!actor.roles.includes('school_admin')) assert(actor.branchId !== null);
   }
   const ownBranchOnly = !actor.isPlatformAdmin && !actor.roles.includes('school_admin');
   return runAs(actor, (tx) =>

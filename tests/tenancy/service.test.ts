@@ -6,7 +6,7 @@ import { branches, memberships, teacherAssignments, users } from '@/db/schema';
 import { currentCode, resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 import {
   assignTeacher, createBranch, createSchool, createSection, createStaffUser, createSubject,
-  findBranchByCode, generateBranchCode, listSectionsForBranch, login, rotateBranchCode, setBranchCodeEnabled,
+  findBranchByCode, generateBranchCode, listSectionsForBranch, listTeachers, login, rotateBranchCode, setBranchCodeEnabled,
 } from '@/modules/tenancy';
 
 const PW = 'staff-password';
@@ -245,5 +245,20 @@ describe('assignTeacher', () => {
     await expect(assignTeacher(seed.a.schoolAdmin, { ...ok, teacherId: seed.a.studentId })).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+  });
+});
+
+describe('fix round 1', () => {
+  it('createStaffUser rejects a malformed email with VALIDATION and creates no user', async () => {
+    const err = await createStaffUser(seed.a.schoolAdmin, {
+      password: PW, name: 'T', schoolId: seed.a.schoolId, branchId: seed.a.branchId, role: 'teacher',
+      username: 'bad.email', email: 'not-an-email',
+    }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'VALIDATION', message: 'Invalid email' });
+    expect(await withPlatform((tx) => tx.select().from(users).where(eq(users.username, 'bad.email')))).toHaveLength(0);
+  });
+
+  it('listTeachers fails closed for a branch_admin without a branch', async () => {
+    await expect(listTeachers({ ...seed.a.branchAdmin, branchId: null })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

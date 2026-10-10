@@ -31,9 +31,9 @@ export async function createPlan(
   return { id: row.id };
 }
 
-/** Active plans in creation order. Global table: no tenant context needed. */
+/** Active plans by price, then name. Global table: no tenant context needed. */
 export async function listActivePlans(): Promise<Plan[]> {
-  const rows = await withPlatform((tx) => tx.select().from(plans).where(eq(plans.active, true)).orderBy(asc(plans.createdAt), asc(plans.id)));
+  const rows = await withPlatform((tx) => tx.select().from(plans).where(eq(plans.active, true)).orderBy(asc(plans.priceMinor), asc(plans.name), asc(plans.id)));
   return rows.map((p) => ({
     id: p.id,
     name: p.name,

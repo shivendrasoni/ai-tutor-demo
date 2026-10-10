@@ -116,7 +116,7 @@ const upload = (over: Partial<UploadInput>): UploadInput => ({
 
 describe('content isolation: School A actors vs School B ids', () => {
   it('raw RLS: content tables are in tenantTables and return only own-school rows', async () => {
-    expect(tenantTables).toHaveLength(13);
+    expect(tenantTables).toHaveLength(16);
     const names = tenantTables.map((t) => getTableName(t));
     for (const n of ['content_items', 'content_exclusions', 'content_chapters', 'chunks']) expect(names).toContain(n);
     await withPlatform((tx) =>

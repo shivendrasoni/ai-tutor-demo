@@ -1,0 +1,58 @@
+# As-built: sub-project 3 (tutor agent)
+
+Later plans must use these real names. They take precedence over plan 3's text wherever the two differ.
+
+## Public exports of `src/modules/tutor/index.ts`
+- Conversations: `createConversation`, `listChatSubjects`, `getMessages`, `listConversations`, `submitFeedback`; type `MessageRow`
+- Turn: `runTurn(actor, conversationId, text, { signal? })` is an async generator of `TurnEvent` (`meta`, `delta`, `citations`, `done`, `error`). Pre-stream failures (`FORBIDDEN`, `NOT_FOUND`, `VALIDATION`) throw on the first `next()`.
+- Skills: `listSkills`, `seedSkills`, `SEED_SKILLS`; types `SkillRow`, `SkillKind`, `SeedSkill`
+- Structured generation: `runSkillStructured`; type `StructuredUsage`
+- Wiring and seams: `configureTutor`, `resetTutorConfig`, `ModelRegistry`, `FakeDecider`; types `TutorDeps`, `TutorModel`, `ModelTier`, `Decider`, `DeciderAnswer`, `DeciderQuestion`, `DeciderRun`, `AgentRunner`, `RunEvent`, `RunInput`, `Citation`
+- Other modules import only from the index.
+
+## Environment variables
+- `LLM_STANDARD_MODEL`, `LLM_ADVANCED_MODEL`: `provider/model` (provider is `openai | anthropic | google | compat`). They are the fallback when a skill has no `models` entry for the tier. A missing value makes the turn end with `TUTOR_BUSY` (and a model-not-configured log line).
+- `OPENAI_COMPAT_BASE_URL` (and optional `OPENAI_COMPAT_API_KEY`): for `compat/...` models.
+- Provider API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`.
+- `DECIDER=jev|llm|none`: default is `jev` if `TYPESAFE_API_KEY` is set, else `llm` if `LLM_STANDARD_MODEL` is set, else `none`.
+- `TYPESAFE_API_KEY`: Jev decider (`jev-latest`, 500 ms timeout, falls back to `llm`, then to no decision).
+- `STUDENT_DAILY_TOKEN_LIMIT`: tokens (in + out) per student per UTC day, default 200000. Checked only before a turn; usage equal to the limit counts as exhausted.
+- `MODEL_PRICES`: JSON `{ "<provider/model>": { "inPerM": n, "outPerM": n } }` in USD. A model without a price has `cost = null`.
+- `EVAL_JUDGE_MODEL`: judge model for the eval scripts.
+
+## Scripts
+- `pnpm seed:skills`: upserts `SEED_SKILLS` (`socratic`, `explain`) by key.
+- `pnpm eval:tutor`, `pnpm eval:socratic`, `pnpm eval:routing`: eval harnesses (they call real models; not part of `vitest`).
+
+## `messages.decisions` keys
+`answers`, `tier`, `fixedReply`, `filterFallback`, `deciderProvider`, `deciderError`, `deciderFellBack`, `latencyMs`, `aborted`.
+- `deciderProvider` is the configured provider (`jev | llm | none`), not the one that answered. Use `deciderFellBack` to detect that the chain fell back; `deciderError` means every decider failed and defaults applied.
+- `tier` is `null` for fixed replies (no model ran); `messages.model` and `messages.model_tier` are also null for them. Otherwise it is `standard | advanced`.
+- `fixedReply` is `'off_topic' | 'unsafe' | null`. `filterFallback` is true when the filtered search found nothing and was retried unfiltered. `aborted` is true when the client left mid-stream (the partial text is kept).
+- `flag_reason` is `'decider_review' | 'unsafe' | 'student_feedback'`.
+
+## Usage metering rules
+- Whenever the provider was invoked, the turn records usage in `usage_daily` (atomic upsert), using the reported usage or an estimate (`ceil(chars / 4)`). This holds on abort and on failure before the first delta.
+- No empty assistant row is ever stored. A provider failure or an empty finished stream stores nothing and ends with `error TUTOR_BUSY`; the user message is kept.
+- A failure while saving the assistant message is logged (redacted) and yields `error TUTOR_BUSY` instead of `done`; it never throws out of the generator.
+- Retries: the runner disables Mastra's own retries (`modelSettings.maxRetries = 0`, `errorProcessorDefaults: false`); `runTurn` retries once, only if nothing was streamed.
+- A pre-meta `TUTOR_BUSY` (model not configured) maps to HTTP 503 after the user message is stored; the web client therefore restores the draft only for network failures and 4xx (`shouldRestoreDraft` in `src/lib/sse-client.ts`).
+
+## Adding skills from another sub-project
+`seedSkills(extra?: readonly SeedSkill[])` upserts `SEED_SKILLS` plus `extra` by key. Sub-project 4 passes its generator and grader skills:
+
+```ts
+import { seedSkills, type SeedSkill } from '@/modules/tutor';
+await seedSkills([quizGenerator, quizGrader]);
+```
+
+On conflict it updates `name`, `kind`, `instructions`, `tools`, `outputSchema`, `providerOptions`. It never touches `models` or `enabled` (operator-owned).
+
+## HTTP
+`GET /api/tutor/subjects` returns the student's visible chat subjects `[{ id, name }]` (for the subject picker; `FORBIDDEN` unless an active student). The other routes: `GET /api/tutor/skills`, `GET|POST /api/tutor/conversations`, `GET|POST /api/tutor/conversations/[id]/messages` (POST streams SSE), `POST /api/tutor/messages/[id]/feedback`.
+
+## Test seams (`tests/helpers/tutor.ts`)
+- `useTutorFakes({ model, decider, hits, runner, subjects, chapters })` wires the deps to fakes and stubs the LLM env; call `resetTutorFakes()` in `afterEach`.
+- `scriptedModel(steps)` is a `MockLanguageModelV4` with one scripted step per `doStream` (`text`, `toolCall`, or `error`) and a `calls` counter.
+- `activate(actor)` sets the student profile to `active`; `seedTutorSkills()` seeds `socratic` and `explain`.
+- `fakeContent` is the content-seam fake (`search` is a spy).

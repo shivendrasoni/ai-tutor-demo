@@ -104,8 +104,8 @@ describe('content tables: RLS and constraints', () => {
     const r = await withPlatform((tx) => tx.execute(sql`select indexdef from pg_indexes where tablename = 'chunks'`));
     expect(r.rows.some((x) => /hnsw.*vector_cosine_ops/.test(String(x.indexdef)))).toBe(true);
   });
-  it('tenantTables includes the four content tables (13 total)', () => {
-    expect(tenantTables).toHaveLength(13);
+  it('tenantTables includes the four content tables (16 total)', () => {
+    expect(tenantTables).toHaveLength(16);
     for (const t of [contentItems, contentExclusions, contentChapters, chunks]) expect(tenantTables).toContain(t);
   });
 });

@@ -7,7 +7,7 @@ import { resolveActor, SESSION_TTL_MS, type Actor } from '@/modules/tenancy';
 
 export const SESSION_COOKIE = 'sid';
 
-const STATUS: Record<ErrorCode, number> = {
+export const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
   INVALID_USERNAME: 400,
   WEAK_PASSWORD: 400,
@@ -20,7 +20,12 @@ const STATUS: Record<ErrorCode, number> = {
   STUDENT_REMOVED: 409,
   CODE_DISABLED: 410,
   INVITE_INVALID: 410,
+  BUDGET_EXCEEDED: 429,
+  TUTOR_BUSY: 503,
 };
+
+/** HTTP status for a domain error code (400 for unknown codes). */
+export const statusFor = (code: string): number => (STATUS as Record<string, number>)[code] ?? 400;
 
 /** HTTP-only error (not a domain outcome), e.g. a missing/expired session. */
 export class HttpError extends Error {
@@ -54,7 +59,7 @@ export function handle<A extends unknown[]>(
       return await fn(req, ...rest);
     } catch (err) {
       if (err instanceof DomainError) {
-        return errorResponse(STATUS[err.code] ?? 400, err.code, err.message, err.details);
+        return errorResponse(statusFor(err.code), err.code, err.message, err.details);
       }
       if (err instanceof HttpError) return errorResponse(err.status, err.code, err.message);
       // Log a redacted summary only; never the request or the raw error (query params may hold secrets).

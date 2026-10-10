@@ -14,7 +14,6 @@ const COPY: Record<string, string> = {
   pending_payment:
     "Your account is waiting for activation. Once your payment is confirmed you'll be able to start learning.",
   lapsed: 'Your plan has expired. Please contact us to renew.',
-  active: 'Your account is active.',
 };
 
 export default function StatusView() {
@@ -44,6 +43,10 @@ export default function StatusView() {
         if (st.error.status === 401) router.replace('/login');
         else if (st.error.status === 403) setView({ kind: 'text', text: `Signed in as ${me.data.name}.` });
         else fail(st.error.code);
+        return;
+      }
+      if (st.data.status === 'active') {
+        router.replace('/learn'); // keep showing "Loading…" while navigating
         return;
       }
       const text = COPY[st.data.status];

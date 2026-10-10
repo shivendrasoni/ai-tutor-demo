@@ -48,11 +48,12 @@ export function json(body: unknown, init: ResponseInit = {}): Response {
 }
 
 /** Wraps a route handler: maps DomainError/HttpError to JSON errors; anything else is a logged (redacted) 500. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function handle<C = any>(fn: (req: Request, ctx: C) => Promise<Response>) {
-  return async (req: Request, ctx?: C): Promise<Response> => {
+export function handle<A extends unknown[]>(
+  fn: (req: Request, ...rest: A) => Promise<Response>,
+): (req: Request, ...rest: A) => Promise<Response> {
+  return async (req, ...rest) => {
     try {
-      return await fn(req, ctx as C);
+      return await fn(req, ...rest);
     } catch (err) {
       if (err instanceof DomainError) {
         const headers = new Headers();

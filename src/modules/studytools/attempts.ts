@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { withTenant, type Tx } from '@/db/client';
 import { artifacts, attempts } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
@@ -67,10 +67,20 @@ export async function startAttempt(actor: Actor, artifactId: string): Promise<{ 
   const scope = await studentScope(actor);
   if (!UUID_RE.test(artifactId)) throw notFound();
   return withTenant(scope.schoolId, async (tx) => {
-    const [art] = await tx.select().from(artifacts).where(and(eq(artifacts.id, artifactId), eq(artifacts.studentId, actor.userId)));
+    // Lock the artifact row so concurrent starts resume the same attempt instead of creating two.
+    const [art] = await tx.select().from(artifacts).where(and(eq(artifacts.id, artifactId), eq(artifacts.studentId, actor.userId))).for('update');
     if (!art) throw notFound();
     if (art.type !== 'practice_test' && art.type !== 'mock_exam') throw validation('Only tests can be attempted');
     if (art.status !== 'ready') throw validation('This test is not ready yet');
+    const open = await tx
+      .select()
+      .from(attempts)
+      .where(and(eq(attempts.artifactId, artifactId), eq(attempts.studentId, actor.userId), eq(attempts.status, 'in_progress')))
+      .orderBy(desc(attempts.startedAt));
+    for (const o of open) {
+      const d = deadlineOf(art, o.startedAt);
+      if (!d || now().getTime() <= d.getTime() + GRACE_MS) return { attemptId: o.id, startedAt: o.startedAt, deadline: d };
+    }
     const startedAt = now();
     const [row] = await tx
       .insert(attempts)

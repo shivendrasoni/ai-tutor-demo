@@ -25,30 +25,35 @@ export default function StudyHub() {
   const [rows, setRows] = useState<Summary[] | null>(null);
   const [error, setError] = useState('');
 
-  const load = useCallback(async (): Promise<Summary[] | null> => {
-    const r = await studyFetch<Summary[]>(`/api/study/artifacts?type=${tab}`);
-    if (r.ok) {
-      setRows(r.data);
-      return r.data;
-    }
-    const to = authRedirect(r.error);
-    if (to) router.replace(to);
-    else setError('Could not load your study items. Please try again.');
-    return null;
-  }, [tab, router]);
-
+  // One polling loop per tab. `live` goes false on unmount or tab switch so a late response never
+  // overwrites newer state or schedules another poll.
+  const live = useRef<{ current: boolean }>({ current: false });
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refresh = useCallback(async () => {
     clearTimeout(timer.current);
-    const data = await load();
-    if (data?.some((a) => nextPollDelay(a.status) !== null)) timer.current = setTimeout(() => void refresh(), nextPollDelay('generating')!);
-  }, [load]);
+    const token = live.current;
+    const r = await studyFetch<Summary[]>(`/api/study/artifacts?type=${tab}`);
+    if (!token.current) return;
+    if (!r.ok) {
+      const to = authRedirect(r.error);
+      if (to) router.replace(to);
+      else setError('Could not load your study items. Please try again.');
+      return;
+    }
+    setRows(r.data);
+    if (r.data.some((a) => nextPollDelay(a.status) !== null)) timer.current = setTimeout(() => void refresh(), nextPollDelay('generating')!);
+  }, [tab, router]);
 
   useEffect(() => {
+    const token = { current: true };
+    live.current = token;
     setRows(null);
     setError('');
     void refresh();
-    return () => clearTimeout(timer.current);
+    return () => {
+      token.current = false;
+      clearTimeout(timer.current);
+    };
   }, [refresh]);
 
   const label = TABS.find((t) => t.type === tab)!.label;

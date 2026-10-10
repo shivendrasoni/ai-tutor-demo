@@ -230,4 +230,13 @@ describe('study routes', () => {
     expect((await artifactsRoute.POST(req('POST', '/x', cookie, { ...createBody(), questionCount: 99 }))).status).toBe(400);
     expect((await artifactsRoute.GET(req('GET', '/api/study/artifacts?type=bogus', cookie))).status).toBe(400);
   });
+
+  it('GET artifact includes the student\'s attempts (newest first) and no answer keys', async () => {
+    const id = await startAttempt();
+    const view = await (await artifactRoute.GET(req('GET', `/api/study/artifacts/${practiceId}`, cookie), ctx(practiceId))).json();
+    expect(view.attempts[0]).toMatchObject({ id, status: 'in_progress', submittedAt: null, score: null });
+    expect(JSON.stringify(view)).not.toMatch(/correctIndex|modelAnswer|rubric/);
+    const other = await artifactRoute.GET(req('GET', `/api/study/artifacts/${practiceId}`, otherCookie), ctx(practiceId));
+    expect(other.status).toBe(404);
+  });
 });

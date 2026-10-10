@@ -1,42 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
-import { AUTOSAVE_MS, shouldAutosave } from './timing';
+import { useEffect, useRef } from 'react';
+import { createSaveQueue, type SaveQueue } from './saveQueue';
+import { shouldAutosave } from './timing';
 
 /**
- * Calls `save` every 10 s while dirty (checked on a 1 s tick), and exposes `flush` for navigation and submit.
- * `markDirty` is called by the form on every change.
+ * Autosave: saves every 10 s while dirty (checked on a 1 s tick) and exposes `flush` for navigation and submit.
+ * `markDirty` is called by the form on every change. Ordering lives in `createSaveQueue`.
  */
 export function useAutosave(save: () => Promise<boolean>, enabled = true): { markDirty: () => void; flush: () => Promise<boolean> } {
-  const dirty = useRef(false);
-  const last = useRef(Date.now());
-  const saving = useRef<Promise<boolean> | null>(null);
   const saveRef = useRef(save);
   saveRef.current = save;
-
-  const flush = useCallback(async (): Promise<boolean> => {
-    if (saving.current) await saving.current;
-    if (!dirty.current) return true;
-    dirty.current = false;
-    const p = saveRef.current();
-    saving.current = p;
-    const ok = await p;
-    saving.current = null;
-    last.current = Date.now();
-    if (!ok) dirty.current = true;
-    return ok;
-  }, []);
+  const queue = useRef<SaveQueue | null>(null);
+  if (!queue.current) queue.current = createSaveQueue(() => saveRef.current());
+  const q = queue.current;
 
   useEffect(() => {
     if (!enabled) return;
     const t = setInterval(() => {
-      if (shouldAutosave(last.current, dirty.current, Date.now())) void flush();
-    }, Math.min(1000, AUTOSAVE_MS));
+      if (shouldAutosave(q.lastSavedAt(), q.isDirty(), Date.now())) void q.flush();
+    }, 1000);
     return () => clearInterval(t);
-  }, [enabled, flush]);
+  }, [enabled, q]);
 
-  const markDirty = useCallback(() => {
-    dirty.current = true;
-  }, []);
-  return { markDirty, flush };
+  return { markDirty: q.markDirty, flush: q.flush };
 }

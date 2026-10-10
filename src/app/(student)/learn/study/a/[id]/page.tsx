@@ -5,21 +5,23 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Markdown from 'react-markdown';
 import Citations from '../../_lib/Citations';
-import { allQuestions, authRedirect, studyFetch, type Artifact } from '../../_lib/api';
+import { allQuestions, authRedirect, studyFetch, type Artifact, type AttemptRow } from '../../_lib/api';
 import { nextPollDelay } from '../../_lib/timing';
 import styles from '../../study.module.css';
+
+type Detail = Artifact & { attempts: AttemptRow[] };
 
 export default function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const [art, setArt] = useState<Artifact | null>(null);
+  const [art, setArt] = useState<Detail | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = async () => {
-      const r = await studyFetch<Artifact>(`/api/study/artifacts/${id}`);
+      const r = await studyFetch<Detail>(`/api/study/artifacts/${id}`);
       if (!live) return;
       if (!r.ok) {
         const to = authRedirect(r.error);
@@ -67,6 +69,21 @@ export default function ArtifactPage({ params }: { params: Promise<{ id: string 
                 {art.durationMinutes ? ` · ${art.durationMinutes} minutes` : ''}
               </p>
               <Link className={styles.primaryLink} href={`/learn/study/a/${art.id}/take`}>Start test</Link>
+              {art.attempts.length > 0 && (
+                <>
+                  <h2 className={styles.sub}>Your attempts</h2>
+                  <ul className={styles.list}>
+                    {art.attempts.map((a) => (
+                      <li key={a.id}>
+                        <Link className={styles.itemLink} href={`/learn/study/attempt/${a.id}`}>
+                          {new Date(a.startedAt).toLocaleString()} ·{' '}
+                          {a.status === 'graded' ? `${a.score} / ${a.maxScore}` : a.status.replace('_', ' ')}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </>
           )}
         </>

@@ -228,14 +228,35 @@ export function toArtifactView(row: typeof artifacts.$inferSelect): ArtifactView
   return view;
 }
 
-export async function getArtifact(actor: Actor, id: string): Promise<ArtifactView> {
+export type AttemptSummary = {
+  id: string;
+  status: string;
+  startedAt: Date;
+  submittedAt: Date | null;
+  score: number | null;
+  maxScore: number | null;
+};
+export type ArtifactDetail = ArtifactView & { attempts: AttemptSummary[] };
+
+export async function getArtifact(actor: Actor, id: string): Promise<ArtifactDetail> {
   const scope = await studentScope(actor);
   if (!UUID_RE.test(id)) throw new DomainError('NOT_FOUND');
-  const [row] = await withTenant(scope.schoolId, (tx) =>
-    tx.select().from(artifacts).where(and(eq(artifacts.id, id), eq(artifacts.studentId, actor.userId))),
-  );
+  const { row, mine } = await withTenant(scope.schoolId, async (tx) => {
+    const [r] = await tx.select().from(artifacts).where(and(eq(artifacts.id, id), eq(artifacts.studentId, actor.userId)));
+    if (!r) return { row: null, mine: [] };
+    const list = await tx
+      .select({
+        id: attempts.id, status: attempts.status, startedAt: attempts.startedAt, submittedAt: attempts.submittedAt,
+        score: attempts.score, maxScore: attempts.maxScore,
+      })
+      .from(attempts)
+      .where(and(eq(attempts.artifactId, id), eq(attempts.studentId, actor.userId)))
+      .orderBy(desc(attempts.startedAt), desc(attempts.id));
+    return { row: r, mine: list };
+  });
   if (!row) throw new DomainError('NOT_FOUND');
-  return toArtifactView(row);
+  const num = (v: string | number | null): number | null => (v === null ? null : Number(v));
+  return { ...toArtifactView(row), attempts: mine.map((a) => ({ ...a, score: num(a.score), maxScore: num(a.maxScore) })) };
 }
 
 export async function listArtifacts(actor: Actor, filter: { type?: ArtifactType } = {}): Promise<ArtifactSummary[]> {

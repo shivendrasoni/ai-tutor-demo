@@ -44,6 +44,7 @@ export type Artifact = {
 };
 export type QResult = { score: number; maxScore: number; feedback?: string; correct?: boolean; needsReview?: true };
 export type ReviewQuestion = ViewQuestion & { correctIndex?: number; modelAnswer?: string; rubric?: string[] };
+export type AttemptRow = { id: string; status: string; startedAt: string; submittedAt: string | null; score: number | null; maxScore: number | null };
 export type Attempt = {
   id: string; artifactId: string; status: string; deadline: string | null; submittedAt: string | null;
   answers: Record<string, number | string>; artifact: Artifact;

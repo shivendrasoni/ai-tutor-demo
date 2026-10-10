@@ -27,6 +27,7 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
   const answersRef = useRef<Answers>({});
   const attemptRef = useRef<string | null>(null);
   const started = useRef(false);
+  const expiredRef = useRef(false);
 
   // Create the attempt once on mount (the ref guards React strict-mode double effects).
   useEffect(() => {
@@ -45,6 +46,12 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
         return;
       }
       attemptRef.current = s.data.attemptId;
+      // A resumed attempt keeps its saved answers.
+      const prev = await studyFetch<{ answers: Answers }>(`/api/study/attempts/${s.data.attemptId}`);
+      if (prev.ok) {
+        answersRef.current = { ...prev.data.answers };
+        setAnswers(answersRef.current);
+      }
       setArt(a.data);
       setDeadline(s.data.deadline);
       setAttemptId(s.data.attemptId);
@@ -54,7 +61,10 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
   const save = useCallback(async (): Promise<boolean> => {
     if (!attemptRef.current) return true;
     const r = await studyFetch(`/api/study/attempts/${attemptRef.current}/answers`, { method: 'PUT', body: { answers: answersRef.current } });
-    if (!r.ok && r.error.code === 'ATTEMPT_EXPIRED') setExpired(true);
+    if (!r.ok && r.error.code === 'ATTEMPT_EXPIRED') {
+      expiredRef.current = true;
+      setExpired(true);
+    }
     return r.ok;
   }, []);
   const { markDirty, flush } = useAutosave(save, attemptId !== null && !expired);
@@ -80,19 +90,26 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
     void flush(); // save in the background so navigation is instant
   }
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (auto = false) => {
     if (!attemptRef.current || submitting) return;
     setSubmitting(true);
     setConfirming(false);
-    await flush();
+    const saved = await flush();
+    if (!saved && !auto && !expiredRef.current) {
+      setSubmitting(false);
+      setError('Could not save your answers, so nothing was submitted. Check your connection and try again.');
+      return;
+    }
     const r = await studyFetch(`/api/study/attempts/${attemptRef.current}/submit`, { method: 'POST' });
     if (r.ok) {
       router.push(`/learn/study/attempt/${attemptRef.current}`);
       return;
     }
     setSubmitting(false);
-    if (r.error.code === 'ATTEMPT_EXPIRED') setExpired(true);
-    else setError('Could not submit. Please try again.');
+    if (r.error.code === 'ATTEMPT_EXPIRED') {
+      expiredRef.current = true;
+      setExpired(true);
+    } else setError('Could not submit. Please try again.');
   }, [flush, router, submitting]);
 
   const left = useCountdown(deadline);
@@ -100,7 +117,7 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
   useEffect(() => {
     if (left === 0 && !autoSubmitted.current && attemptId) {
       autoSubmitted.current = true;
-      void submit();
+      void submit(true);
     }
   }, [left, attemptId, submit]);
 
@@ -180,7 +197,7 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
       ) : (
         <div className={styles.confirm} role="alertdialog" aria-label="Confirm submit">
           <p>Submit your answers? You cannot change them afterwards.</p>
-          <button type="button" className={styles.primary} disabled={submitting} onClick={() => void submit()}>Yes, submit</button>
+          <button type="button" className={styles.primary} disabled={submitting} onClick={() => void submit(false)}>Yes, submit</button>
           <button type="button" className={styles.secondary} onClick={() => setConfirming(false)}>Keep working</button>
         </div>
       )}

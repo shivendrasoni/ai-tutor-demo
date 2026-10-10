@@ -62,10 +62,37 @@ describe('startAttempt', () => {
     expect(m.startedAt).toEqual(T0);
     expect(m.deadline).toEqual(new Date(T0.getTime() + 120 * 60_000));
   });
-  it('several attempts on the same test are allowed', async () => {
+  it('resumes the existing in-progress attempt with the same startedAt and deadline', async () => {
+    setNow(() => T0);
+    const a = await startAttempt(student, mockId);
+    setNow(() => new Date(T0.getTime() + 60_000));
+    const b = await startAttempt(student, mockId);
+    expect(b).toEqual(a);
+    expect(await withPlatform((tx) => tx.select().from(attempts))).toHaveLength(1);
+  });
+  it('a new attempt is allowed once the previous one is submitted', async () => {
     const a = await start();
+    await submitAttempt(student, a);
     const b = await start();
     expect(a).not.toBe(b);
+  });
+  it('an expired in-progress attempt does not block a new one', async () => {
+    setNow(() => T0);
+    const a = await startAttempt(student, mockId);
+    setNow(() => new Date(T0.getTime() + 120 * 60_000 + GRACE + 1000));
+    const b = await startAttempt(student, mockId);
+    expect(b.attemptId).not.toBe(a.attemptId);
+  });
+  it('getArtifact lists own attempts newest first without answer keys', async () => {
+    setNow(() => T0);
+    const a = await start();
+    await submitAttempt(student, a);
+    setNow(() => new Date(T0.getTime() + 1000));
+    const b = await start();
+    const view = await getArtifact(student, practiceId);
+    expect(view.attempts.map((x) => x.id)).toEqual([b, a]);
+    expect(view.attempts[1]).toMatchObject({ status: expect.any(String), score: expect.anything(), maxScore: expect.anything() });
+    expect(JSON.stringify(view)).not.toMatch(/correctIndex|modelAnswer|rubric|answers/);
   });
 });
 
@@ -99,7 +126,11 @@ describe('saveAnswers', () => {
   it('expiry: within grace ok, one ms past → ATTEMPT_EXPIRED for save and submit', async () => {
     setNow(() => T0);
     const a = await start(mockId);
-    const b = await start(mockId);
+    // resume means start() returns the same attempt, so insert the second one directly
+    const [row] = await withPlatform((tx) => tx.select().from(attempts).where(eq(attempts.id, a)));
+    const [{ id: b }] = await withPlatform((tx) =>
+      tx.insert(attempts).values({ schoolId: row!.schoolId, artifactId: mockId, studentId: student.userId!, status: 'in_progress', startedAt: T0, answers: {} }).returning({ id: attempts.id }),
+    );
     const edge = T0.getTime() + 120 * 60_000 + GRACE;
     setNow(() => new Date(edge));
     await expect(saveAnswers(student, a, { A1: 1 })).resolves.toBeUndefined();

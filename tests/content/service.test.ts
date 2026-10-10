@@ -341,6 +341,19 @@ describe('listContent', () => {
   });
 });
 
+describe('actors without a branch', () => {
+  it('list and upload targets never raise a uuid cast error', async () => {
+    const { id } = await seedItem(seed.a, { scope: 'school' });
+    const ids = async (actor: Actor, f: { branchId?: string } = {}) => (await listContent(actor, f)).map((r) => r.id);
+    const noBranch = (a: Actor): Actor => ({ ...a, branchId: null });
+    expect(await ids(noBranch(seed.a.branchAdmin))).toContain(id);
+    expect(await ids(noBranch(seed.a.teacher), { branchId: seed.a.branchId })).toContain(id);
+    expect((await listUploadTargets(noBranch(seed.a.branchAdmin))).branches).toEqual([]);
+    expect(await ids(seed.a.schoolAdmin, { branchId: seed.a.branchId })).toContain(id);
+    expect(await ids(seed.platform, { branchId: seed.a.branchId })).toContain(id);
+  });
+});
+
 describe('listUploadTargets', () => {
   it('teacher gets only assigned sections and subjects', async () => {
     const t = await newTeacher(seed.a);

@@ -54,6 +54,8 @@ export type UploadInput = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
+/** Matches no row; used instead of '' (a uuid cast error) when an actor has no branch. */
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
 const QUEUE_ERROR = 'Could not queue job';
 
@@ -288,7 +290,7 @@ export async function listContent(
     if (!actor.isPlatformAdmin) {
       const isSchoolAdmin = actor.roles.includes('school_admin');
       if (!isSchoolAdmin && actor.roles.includes('branch_admin')) {
-        where.push(or(eq(contentItems.scope, 'school'), eq(contentItems.branchId, actor.branchId ?? '')));
+        where.push(or(eq(contentItems.scope, 'school'), eq(contentItems.branchId, actor.branchId ?? NIL_UUID)));
       } else if (!isSchoolAdmin) {
         // Teacher: own uploads, plus school/branch items for grades of the sections they teach.
         const grades = await tx
@@ -300,7 +302,7 @@ export async function listContent(
         const visible = and(
           or(
             eq(contentItems.scope, 'school'),
-            and(eq(contentItems.scope, 'branch'), eq(contentItems.branchId, actor.branchId ?? '')),
+            and(eq(contentItems.scope, 'branch'), eq(contentItems.branchId, actor.branchId ?? NIL_UUID)),
           ),
           gradeList.length ? inArray(contentItems.grade, gradeList) : undefined,
         );
@@ -374,7 +376,7 @@ export async function listUploadTargets(actor: Actor): Promise<UploadTargets> {
       const branchRows = await tx
         .select({ id: branches.id, name: branches.name })
         .from(branches)
-        .where(isBranchAdmin ? eq(branches.id, actor.branchId ?? '') : undefined)
+        .where(isBranchAdmin ? eq(branches.id, actor.branchId ?? NIL_UUID) : undefined)
         .orderBy(branches.name);
       const branchIds = branchRows.map((b) => b.id);
       const sectionRows = branchIds.length

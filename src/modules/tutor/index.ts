@@ -8,3 +8,4 @@ export { FakeDecider } from './decider/fake';
 export type { Decider, DeciderAnswer, DeciderQuestion, DeciderRun } from './decider/types';
 export type { AgentRunner, RunEvent, RunInput } from './runner/types';
 export { runSkillStructured, type StructuredUsage } from './structured';
+export { STUDY_SKILLS } from './skills-study';

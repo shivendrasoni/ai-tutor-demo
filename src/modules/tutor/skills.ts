@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
 import { skills } from '@/db/schema';
+import { STUDY_SKILLS } from './skills-study';
 
 export type SkillKind = 'chat' | 'generator' | 'grader';
 export type SkillRow = {
@@ -40,6 +41,7 @@ export const SEED_SKILLS: readonly SeedSkill[] = Object.freeze([
     key: 'explain', name: 'Explain', kind: 'chat', instructions: EXPLAIN_INSTRUCTIONS,
     models: {}, tools: ['search_curriculum'], outputSchema: null, providerOptions: null, enabled: true,
   },
+  ...STUDY_SKILLS,
 ]);
 
 /** Upserts SEED_SKILLS plus `extra` by key. Never overwrites `models` or `enabled` once set by an operator. */

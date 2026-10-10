@@ -31,6 +31,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   timeout: 60_000,
+  // `next dev` compiles each route on first hit (seconds under load), so the 5 s default is too tight for first-render assertions.
+  expect: { timeout: 15_000 },
   reporter: process.env.CI ? 'list' : [['list']],
   use: {
     baseURL: APP_URL,

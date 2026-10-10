@@ -2,9 +2,12 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { withPlatform } from '@/db/client';
 import { skills } from '@/db/schema';
+import { resetDb } from '../helpers/db';
 import { getSkillByKey, listSkills, SEED_SKILLS, seedSkills, type SeedSkill } from '@/modules/tutor/skills';
 
 beforeAll(async () => {
+  // Exact-list assertions below: start from an empty skills table rather than whatever the previous file left (e.g. tutor-rls's 't').
+  await resetDb();
   await seedSkills();
 });
 afterEach(async () => {
@@ -36,7 +39,10 @@ describe('skills', () => {
     expect(row?.models).toEqual({ standard: 'openai/x' });
   });
   it('listSkills(kind) filters by kind and skips disabled', async () => {
-    expect(await listSkills('generator')).toEqual([]);
+    expect((await listSkills('generator')).map((s) => s.key)).toEqual([
+      'last_night_notes_generator', 'mock_exam_generator', 'practice_test_generator', 'study_notes_generator',
+    ]);
+    expect((await listSkills('grader')).map((s) => s.key)).toEqual(['answer_grader']);
     await withPlatform((tx) => tx.update(skills).set({ enabled: false }).where(eq(skills.key, 'explain')));
     expect((await listSkills('chat')).map((s) => s.key)).toEqual(['socratic']);
     expect((await listSkills()).map((s) => s.key)).not.toContain('explain');

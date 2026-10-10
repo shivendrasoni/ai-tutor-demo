@@ -1,0 +1,78 @@
+/* Mobile-first, single column; the shell (learn.module.css) caps width at 480px. */
+.title { font-size: 1.5rem; line-height: 1.25; margin: 0 0 16px; }
+.sub { font-size: 1.1rem; margin: 20px 0 8px; }
+.hint { font-size: 0.875rem; color: #4b5563; margin: 8px 0 0; }
+.error { color: #b91c1c; font-size: 0.9rem; margin: 12px 0 0; }
+.back { margin: 0 0 12px; }
+.back a { color: #1d4ed8; }
+
+.primary, .secondary, .primaryLink {
+  box-sizing: border-box; min-height: 48px; padding: 12px 16px; font: inherit; font-weight: 600;
+  border-radius: 8px; cursor: pointer; display: block; width: 100%; text-align: center; text-decoration: none;
+}
+.primary, .primaryLink { color: #fff; background: #1d4ed8; border: 0; margin-top: 12px; }
+.primary:disabled { background: #6b7a99; cursor: not-allowed; }
+.secondary { color: #1d4ed8; background: #fff; border: 1px solid #1d4ed8; margin-top: 8px; }
+.secondary:disabled { color: #8a92a3; border-color: #c4c9d4; cursor: not-allowed; }
+.primary:focus-visible, .secondary:focus-visible, .primaryLink:focus-visible, .tab:focus-visible, .tabOn:focus-visible,
+.select:focus-visible, .input:focus-visible, .textarea:focus-visible, .dot:focus-visible, .dotOn:focus-visible,
+.dotDone:focus-visible, .itemLink:focus-visible, .check input:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
+.tab, .tabOn {
+  min-height: 44px; padding: 8px; font: inherit; font-size: 0.9rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid #c4c9d4; background: #fff; color: #111827;
+}
+.tabOn { background: #1d4ed8; border-color: #1d4ed8; color: #fff; font-weight: 600; }
+
+.form { display: flex; flex-direction: column; gap: 14px; margin: 12px 0; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.legend { font-weight: 600; font-size: 0.95rem; padding: 0; margin-bottom: 6px; }
+.select, .input, .textarea {
+  box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; font-size: 16px;
+  background: #fff; border: 1px solid #8a92a3; border-radius: 8px;
+}
+.textarea { resize: vertical; }
+.check {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px;
+  border: 1px solid #c4c9d4; border-radius: 8px; cursor: pointer;
+}
+.check input { width: 20px; height: 20px; margin: 0; }
+
+.list { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px; border: 1px solid #c4c9d4; border-radius: 8px; }
+.itemMain { display: flex; flex-direction: column; min-width: 0; }
+.itemLink { color: #1d4ed8; font-weight: 600; }
+.badge, .badgeOk, .badgeBad { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: #e5e7eb; color: #374151; }
+.badgeOk { background: #dcfce7; color: #166534; }
+.badgeBad { background: #fee2e2; color: #991b1b; }
+
+.notes { display: flex; flex-direction: column; gap: 20px; }
+.note h2 { font-size: 1.15rem; margin: 0 0 8px; }
+.note p { margin: 0 0 8px; }
+.chips { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: #e0e7ff; color: #1e3a8a; }
+
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.timer { font-variant-numeric: tabular-nums; font-weight: 700; }
+.strip { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.dot, .dotOn, .dotDone {
+  width: 36px; height: 36px; border-radius: 50%; font: inherit; font-size: 0.8rem; cursor: pointer;
+  border: 1px solid #c4c9d4; background: #fff; color: #111827;
+}
+.dotDone { background: #dbeafe; border-color: #1d4ed8; }
+.dotOn { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.question { margin-bottom: 8px; }
+.prompt { font-weight: 600; margin: 0; }
+.nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.confirm { margin-top: 12px; padding: 12px; border: 1px solid #1d4ed8; border-radius: 8px; }
+
+.score { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+.review { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-direction: column; gap: 16px; }
+.reviewItem { padding: 12px; border: 1px solid #c4c9d4; border-radius: 8px; }
+.reviewItem p { margin: 6px 0 0; }
+.yours { color: #374151; }
+.feedback { color: #1f2937; background: #f3f4f6; padding: 8px; border-radius: 6px; }
+.correct { color: #166534; }
+.review2 { color: #92400e; font-weight: 600; }

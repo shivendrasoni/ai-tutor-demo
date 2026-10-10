@@ -59,8 +59,8 @@ describe('tutor tables: RLS', () => {
       withTenant(seed.a.schoolId, (tx) => tx.insert(skills).values({ key: 'u', name: 'u', kind: 'chat', instructions: 'i' })),
     ).rejects.toMatchObject({ cause: { message: expect.stringMatching(/permission denied/) } });
   });
-  it('tenantTables includes the three tutor tables (16 total) but not skills', () => {
-    expect(tenantTables).toHaveLength(16);
+  it('tenantTables includes the three tutor tables (18 total) but not skills', () => {
+    expect(tenantTables).toHaveLength(18);
     for (const t of [conversations, messages, usageDaily]) expect(tenantTables).toContain(t);
     expect(tenantTables).not.toContain(skills);
   });

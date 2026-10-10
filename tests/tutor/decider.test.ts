@@ -4,6 +4,7 @@ import { FakeDecider } from '@/modules/tutor/decider/fake';
 import { FallbackDecider } from '@/modules/tutor/decider/fallback';
 import { JevDecider } from '@/modules/tutor/decider/jev';
 import { LlmDecider } from '@/modules/tutor/decider/llm';
+import { MockDecider } from '@/modules/tutor/decider/mock';
 import { selectDecider } from '@/modules/tutor/decider/select';
 import { confidenceFrom, sanitizeAnswers, type Decider, type DeciderQuestion, type DeciderRun } from '@/modules/tutor/decider/types';
 import { ModelRegistry } from '@/modules/tutor/models/registry';
@@ -244,7 +245,7 @@ describe('selectDecider', () => {
     return r;
   };
   const env = (e: Record<string, string>) => {
-    for (const k of ['DECIDER', 'TYPESAFE_API_KEY', 'LLM_STANDARD_MODEL']) vi.stubEnv(k, e[k] ?? '');
+    for (const k of ['DECIDER', 'TYPESAFE_API_KEY', 'LLM_STANDARD_MODEL', 'AI_MOCK']) vi.stubEnv(k, e[k] ?? '');
   };
 
   it('jev with an LLM configured chains Jev then LLM', () => {
@@ -278,5 +279,33 @@ describe('selectDecider', () => {
     expect(selectDecider({ registry: registry() }).provider).toBe('none');
     env({ DECIDER: 'jev' });
     expect(selectDecider({ registry: registry() }).provider).toBe('none');
+  });
+  it('mock mode (AI_MOCK=1) selects MockDecider when no real decider is configured', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    env({ AI_MOCK: '1' });
+    const s = selectDecider({ registry: registry() });
+    expect(s.provider).toBe('mock');
+    expect(s.decider).toBeInstanceOf(MockDecider);
+  });
+  it('DECIDER=mock selects MockDecider outside mock mode; DECIDER=none still wins in mock mode', () => {
+    env({ DECIDER: 'mock' });
+    expect(selectDecider({ registry: registry() }).decider).toBeInstanceOf(MockDecider);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    env({ DECIDER: 'none', AI_MOCK: '1' });
+    expect(selectDecider({ registry: registry() })).toEqual({ decider: null, provider: 'none' });
+  });
+  it('real config beats mock mode: jev, then a non-mock llm', () => {
+    env({ AI_MOCK: '1', TYPESAFE_API_KEY: 'k' });
+    expect(selectDecider({ registry: registry() }).provider).toBe('jev');
+    env({ AI_MOCK: '1', LLM_STANDARD_MODEL: 'openai/x' });
+    expect(selectDecider({ registry: registry() }).provider).toBe('llm');
+  });
+  it('never builds an LlmDecider over a mock/* model', () => {
+    env({ LLM_STANDARD_MODEL: 'mock/standard' });
+    const s = selectDecider({ registry: registry() });
+    expect(s.provider).toBe('mock');
+    expect(s.decider).toBeInstanceOf(MockDecider);
+    env({ TYPESAFE_API_KEY: 'k', LLM_STANDARD_MODEL: 'mock/standard' });
+    expect(selectDecider({ registry: registry() }).decider).toBeInstanceOf(JevDecider);
   });
 });

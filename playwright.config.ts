@@ -12,6 +12,7 @@ process.env.APP_URL = APP_URL;
 // One absolute blob dir shared by the web server (uploads) and the in-process worker (global-setup).
 process.env.BLOB_DIR = resolve(process.env.BLOB_DIR ?? '.blob-test');
 process.env.EMBEDDER = 'fake';
+process.env.AI_MOCK = '1'; // keyless runs use the mock providers (also read by the in-process worker in global-setup)
 
 const serverEnv: Record<string, string> = {
   DATABASE_URL_OWNER: process.env.DATABASE_URL_OWNER!,
@@ -19,6 +20,7 @@ const serverEnv: Record<string, string> = {
   DATABASE_URL_ADMIN: process.env.DATABASE_URL_ADMIN!,
   APP_URL,
   EMBEDDER: 'fake',
+  AI_MOCK: '1',
   BLOB_DIR: process.env.BLOB_DIR,
   NEXT_TELEMETRY_DISABLED: '1',
   // Every spec logs in / joins from the same IP, so the production rate limits (see src/lib/rate-limit.ts)

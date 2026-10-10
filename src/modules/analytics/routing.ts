@@ -24,6 +24,7 @@ export type RoutingStats = {
  * - filterFallbacks / deciderErrors / deciderFallbacks: count of filterFallback / deciderError / deciderFellBack = true.
  *   deciderProvider is the CONFIGURED provider (not the one that answered), so fallbacks use deciderFellBack only.
  * A missing key counts as false.
+ * deciderProvider may be 'mock' (MockDecider in keyless mock mode); no counter groups by provider, so 'mock' turns count like any other.
  */
 export async function routingStats(actor: Actor, args: { days: 7 | 30; now?: Date }): Promise<RoutingStats> {
   requirePlatform(actor);

@@ -1,3 +1,5 @@
+import { aiMockMode } from '@/lib/ai-mode';
+
 /** Tutor env config. Every function reads `process.env` on each call so tests can stub it. */
 export type ModelPrice = { inPerM: number; outPerM: number };
 
@@ -22,10 +24,13 @@ export function llmModel(tier: 'standard' | 'advanced'): string | undefined {
   return v || undefined;
 }
 
-export function deciderMode(): 'jev' | 'llm' | 'none' {
+export type DeciderMode = 'jev' | 'llm' | 'mock' | 'none';
+
+export function deciderMode(): DeciderMode {
   const d = process.env.DECIDER;
-  if (d === 'jev' || d === 'llm' || d === 'none') return d;
+  if (d === 'jev' || d === 'llm' || d === 'mock' || d === 'none') return d;
   if (process.env.TYPESAFE_API_KEY) return 'jev';
   if (process.env.LLM_STANDARD_MODEL) return 'llm';
+  if (aiMockMode()) return 'mock';
   return 'none';
 }

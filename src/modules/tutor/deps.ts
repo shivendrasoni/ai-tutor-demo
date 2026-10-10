@@ -8,7 +8,7 @@ import type { AgentRunner } from './runner/types';
 export type TutorDeps = {
   registry: ModelRegistry;
   decider: Decider | null;
-  deciderProvider: 'jev' | 'llm' | 'none';
+  deciderProvider: 'jev' | 'llm' | 'mock' | 'none';
   runner: AgentRunner;
   content: { search: typeof searchChunks; subjects: typeof listVisibleSubjects; chapters: typeof listVisibleChapters };
   now: () => Date;

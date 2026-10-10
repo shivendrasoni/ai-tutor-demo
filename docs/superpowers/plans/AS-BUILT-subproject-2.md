@@ -15,7 +15,7 @@ Later plans must use these real names. They take precedence over plan 2's text w
 - `BLOB_DIR`: local blob directory (default `.data/blobs`). `S3_BUCKET` and the other `S3_*` variables switch to `S3BlobStore`.
 - `EMBEDDER=openai|fake`. Default is `openai` when `OPENAI_API_KEY` is set, otherwise `fake`. `EMBEDDER=openai` without a key throws.
 - `OPENAI_API_KEY`: embeddings (`text-embedding-3-small`) and OpenAI OCR models.
-- `OCR_MODEL`: `provider/model` (only `openai/<model>` is supported). Unset means low-text pages keep their text and are counted in `ocr_skipped_pages`.
+- `OCR_MODEL`: `provider/model` (only `openai/<model>` is supported). Unset means low-text pages keep their text and are counted in `ocr_skipped_pages`, unless mock mode is on (`AI_MOCK=1`, or the keyless non-production/non-test default; see sub-project 3 as-built): then `selectOcr` returns `MockOcrExtractor`, whose text is `[mock OCR] page N: no text layer; OCR is mocked in this environment.` and those pages count in `ocr_pages`. An explicit `OCR_MODEL` always wins. Embeddings are unchanged: `selectEmbedder` falls back to `FakeEmbedder` without `OPENAI_API_KEY` (dev server and worker both use it via `getDeps`); explicit `EMBEDDER` wins.
 - `DATABASE_URL_OWNER`: pg-boss connects as the owner because it creates the `pgboss` schema.
 
 ## Worker

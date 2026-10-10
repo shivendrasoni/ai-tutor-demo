@@ -1,11 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb } from '@/db/client';
-import { loadSchoolDashboard } from '@/app/(staff)/school/loaders';
+import { loadSchoolDashboard, loadSchoolSetup } from '@/app/(staff)/school/loaders';
 import BranchCodes from '@/app/(staff)/school/_components/BranchCodes';
 import EnrollmentTable from '@/app/(staff)/school/_components/EnrollmentTable';
 import { InviteResult } from '@/app/(staff)/school/_components/AddStudentForm';
+import SetupSection from '@/app/(staff)/school/_components/SetupSection';
 import StudentsTable from '@/app/(staff)/school/_components/StudentsTable';
+import { createStaffUser } from '@/modules/tenancy';
 import { createEmptySchool, seedAnalyticsWorld, type World } from '../helpers/analytics-seed';
 import { resetDb } from '../helpers/db';
 
@@ -98,5 +100,47 @@ describe('components', () => {
       <BranchCodes branches={[{ branchId: 'b', name: 'Branch A', signupCode: 'ABC123', signupCodeEnabled: true, sections: [] }]} />,
     );
     for (const s of ['Branch A', 'ABC123', 'Rotate', 'Disable']) expect(html).toContain(s);
+  });
+});
+
+describe('school setup', () => {
+  it('loadSchoolSetup: school_admin sees every branch, subject and teacher of their school and can manage subjects', async () => {
+    const mk = (username: string, branchId: string) =>
+      createStaffUser(w.a.schoolAdmin, { schoolId: w.a.schoolId, branchId, role: 'teacher', username, password: 'a-good-password-1', name: username });
+    await mk('teach_b2', w.aBranch2Id);
+    const d = await loadSchoolSetup(w.a.schoolAdmin);
+    expect(d.canManageSubjects).toBe(true);
+    expect(d.branches.map((b) => b.branchId).sort()).toEqual([w.a.branchId, w.aBranch2Id].sort());
+    expect(d.subjects.map((s) => s.id)).toContain(w.a.subjectId);
+    expect(d.teachers.map((t) => t.userId)).toContain(w.a.teacherId);
+    expect(d.teachers.find((t) => t.username === 'teach_b2')).toMatchObject({ branchId: w.aBranch2Id });
+    expect(JSON.stringify(d)).not.toMatch(/passwordHash/);
+  });
+  it('loadSchoolSetup: branch_admin sees only their branch teachers and cannot manage subjects', async () => {
+    await createStaffUser(w.a.schoolAdmin, {
+      schoolId: w.a.schoolId, branchId: w.aBranch2Id, role: 'teacher', username: 'teach_b2', password: 'a-good-password-1', name: 'B2',
+    });
+    const d = await loadSchoolSetup(w.a.branchAdmin);
+    expect(d.canManageSubjects).toBe(false);
+    expect(d.branches.map((b) => b.branchId)).toEqual([w.a.branchId]);
+    expect(d.teachers.length).toBeGreaterThan(0);
+    expect(d.teachers.every((t) => t.branchId === w.a.branchId)).toBe(true);
+    expect(d.subjects.length).toBeGreaterThan(0);
+  });
+  it('SetupSection renders the four forms; the subject form is school_admin only', async () => {
+    const d = await loadSchoolSetup(w.a.schoolAdmin);
+    const full = renderToStaticMarkup(<SetupSection {...d} />);
+    for (const s of ['Setup', 'Add a section', 'Add a subject', 'Create a teacher account', 'Assign a teacher', 'Mathematics', '8-A']) {
+      expect(full).toContain(s);
+    }
+    expect(full).toContain('type="password"');
+    const ba = renderToStaticMarkup(<SetupSection {...(await loadSchoolSetup(w.a.branchAdmin))} />);
+    expect(ba).toContain('Add a section');
+    expect(ba).not.toContain('Add a subject');
+  });
+  it('SetupSection explains what is missing in an empty school', async () => {
+    const empty = await createEmptySchool(w.platform);
+    const html = renderToStaticMarkup(<SetupSection {...(await loadSchoolSetup(empty.admin))} />);
+    expect(html).toContain('Create a branch');
   });
 });

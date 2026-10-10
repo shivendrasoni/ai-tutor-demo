@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { rateLimits } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
-import { clientIp, enforce, hit, purgeRateLimits, refund } from '@/lib/rate-limit';
+import { clientIp, enforce, hit, purgeRateLimits, refund, resetClientIpWarning } from '@/lib/rate-limit';
 import { resetDb } from '../helpers/db';
 
 beforeEach(resetDb);
@@ -66,9 +66,53 @@ describe('refund / enforce / purge / clientIp', () => {
     expect(rows.map((r) => r.key)).toEqual(['new']);
   });
 
-  it('clientIp uses the first x-forwarded-for hop, else unknown', () => {
+  describe('clientIp (TRUSTED_PROXY_HOPS)', () => {
     const r = (h: Record<string, string>) => new Request('http://x', { headers: h });
-    expect(clientIp(r({ 'x-forwarded-for': ' 1.2.3.4 , 9.9.9.9' }))).toBe('1.2.3.4');
-    expect(clientIp(r({}))).toBe('unknown');
+    const xff = (v: string) => r({ 'x-forwarded-for': v });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('default (1 trusted proxy) uses the right-most hop, ignoring client-supplied left entries', () => {
+      expect(clientIp(xff(' 6.6.6.6 , 1.2.3.4 '))).toBe('1.2.3.4');
+      expect(clientIp(xff('1.2.3.4'))).toBe('1.2.3.4');
+      expect(clientIp(r({}))).toBe('unknown');
+    });
+    it('N hops use the Nth entry from the right; a short header falls back to its left-most entry', () => {
+      vi.stubEnv('TRUSTED_PROXY_HOPS', '2');
+      expect(clientIp(xff('6.6.6.6, 1.2.3.4, 10.0.0.1'))).toBe('1.2.3.4');
+      expect(clientIp(xff('1.2.3.4'))).toBe('1.2.3.4');
+    });
+    it('0 ignores the header entirely', () => {
+      vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
+      expect(clientIp(xff('1.2.3.4'))).toBe('unknown');
+    });
+    it('warns once per process when proxies are trusted but x-forwarded-for is missing, without header values', () => {
+      resetClientIpWarning();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        expect(clientIp(r({ 'x-real-ip': '9.9.9.9' }))).toBe('unknown');
+        expect(clientIp(r({}))).toBe('unknown');
+        expect(warn).toHaveBeenCalledOnce();
+        expect(String(warn.mock.calls[0][0])).toContain('TRUSTED_PROXY_HOPS');
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('9.9.9.9');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+    it('does not warn with TRUSTED_PROXY_HOPS=0 or when the header is present', () => {
+      resetClientIpWarning();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        clientIp(xff('1.2.3.4'));
+        vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
+        clientIp(r({}));
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+    it('an invalid value falls back to 1', () => {
+      vi.stubEnv('TRUSTED_PROXY_HOPS', 'abc');
+      expect(clientIp(xff('6.6.6.6, 1.2.3.4'))).toBe('1.2.3.4');
+    });
   });
 });

@@ -8,7 +8,7 @@ import type { Actor, StudentStatus } from '@/modules/tenancy/actor';
 import { hashPassword, assertPasswordStrength } from '@/modules/tenancy/auth/passwords';
 import { canManageBranch, runAs } from '@/modules/tenancy/authz';
 import { revokeUserSessions } from '@/modules/tenancy/auth/sessions';
-import { isPeriodExpired, lapseExpired } from './lapse';
+import { effectiveStatusSql, effectiveStudentStatus } from './lapse';
 
 export type StudentRow = {
   userId: string;
@@ -35,6 +35,7 @@ const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
 export async function listStudents(
   actor: Actor,
   filters: { schoolId?: string; branchId?: string; grade?: number; status?: StudentStatus },
+  now: Date = new Date(),
 ): Promise<StudentRow[]> {
   const parsed = FilterSchema.safeParse(filters ?? {});
   if (!parsed.success) {
@@ -70,7 +71,8 @@ export async function listStudents(
   const conds: SQL[] = [eq(studentProfiles.schoolId, schoolId)];
   if (branchId) conds.push(eq(studentProfiles.branchId, branchId));
   if (f.grade !== undefined) conds.push(eq(studentProfiles.grade, f.grade));
-  if (f.status) conds.push(eq(studentProfiles.status, f.status));
+  const effective = effectiveStatusSql(now);
+  if (f.status) conds.push(sql`${effective} = ${f.status}`);
 
   const rows = await runAs(actor, (tx) =>
     tx
@@ -82,7 +84,7 @@ export async function listStudents(
         branchName: branches.name,
         grade: studentProfiles.grade,
         sectionName: sections.name,
-        status: studentProfiles.status,
+        status: effective,
         planName: plans.name,
         periodEnd: subscriptions.currentPeriodEnd,
       })
@@ -157,21 +159,15 @@ export async function studentStatus(
   if (!actor.roles.includes('student')) throw new DomainError('FORBIDDEN', 'Students only');
   const [row] = await runAs(actor, (tx) =>
     tx
-      .select({
-        status: studentProfiles.status,
-        planName: plans.name,
-        periodEnd: subscriptions.currentPeriodEnd,
-      })
+      .select({ planName: plans.name, periodEnd: subscriptions.currentPeriodEnd })
       .from(studentProfiles)
       .leftJoin(subscriptions, eq(subscriptions.studentId, studentProfiles.userId))
       .leftJoin(plans, eq(plans.id, subscriptions.planId))
       .where(eq(studentProfiles.userId, actor.userId)),
   );
   if (!row) throw new DomainError('NOT_FOUND', 'Student profile not found');
-  // Read-time lapse: an active student whose period has ended is lapsed even if the daily job has not run.
-  if (row.status === 'active' && isPeriodExpired(row.periodEnd, now)) {
-    await lapseExpired(now, actor.userId);
-    return { status: 'lapsed', planName: row.planName, periodEnd: row.periodEnd };
-  }
-  return row as { status: StudentStatus; planName: string | null; periodEnd: Date | null };
+  // The read-time lapse rule lives in one place (effectiveStudentStatus).
+  const status = await effectiveStudentStatus(actor.userId, now);
+  if (!status) throw new DomainError('NOT_FOUND', 'Student profile not found');
+  return { status, planName: row.planName, periodEnd: row.periodEnd };
 }

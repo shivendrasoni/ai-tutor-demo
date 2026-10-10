@@ -26,7 +26,8 @@ Later plans must use these real names. They take precedence over plan 4's text w
 - `studytools.grade`: `policy: 'stately'`, `retryLimit: 2`, `retryBackoff`, worker `localConcurrency` 4. Each job is inserted with `singletonKey = "<attemptId>:<questionId>"`.
 - `ingest` (sub-project 2) is now `stately` too (`singletonKey = contentItemId`).
 - `stately` allows one queued (created/retry) and one active job per key, so a duplicate send while one is queued is dropped; `singletonKey` has no effect on a standard queue.
-- pg-boss cannot change a queue's policy after creation. `ensureQueue` (`src/lib/boss.ts`) drops and recreates a queue whose existing policy differs (existing dev DBs); jobs queued at that moment are lost, which the recovery paths below cover.
+- pg-boss cannot change a queue's policy after creation, and `deleteQueue` deletes all of its jobs. `ensureQueue` (`src/lib/boss.ts`) is the send-only path (web, and the worker's `registerStudyToolsWorkers`): idempotent `createQueue`, never a drop; a policy mismatch only logs a warning. The policy migration lives in `migrateQueuePolicies` (worker startup only, `src/worker.ts` passes `STUDY_QUEUE_SPECS` into `startWorker`): under a Postgres advisory lock it creates missing queues and drops/recreates a mismatched queue only when it has no job in created/retry/active; otherwise it logs an error and keeps the old queue (drain it and restart the worker).
+- `sendDeduped` (`src/lib/boss.ts`): a null `send` (stately dedupe) counts as already queued only if `hasPendingJob` finds a created/retry/active job for that singletonKey; otherwise it throws so the caller's failure path runs. `enqueueGenerate` uses it (`enqueueGrade` uses `insert`, which does not report dedupes).
 - Workers are registered on the ingest worker's boss in `src/worker.ts` via `registerStudyToolsWorkers`.
 
 ## Shared send-only boss (`src/lib/boss.ts`)

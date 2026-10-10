@@ -17,6 +17,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await pool.end();
   }
 
+  process.env.AI_MOCK = '1'; // playwright.config.ts sets it too; keeps this worker in mock mode if run standalone
   const blobDir = process.env.BLOB_DIR!;
   await rm(blobDir, { recursive: true, force: true });
   const worker = await startWorker({ blobs: new LocalBlobStore(blobDir), embedder: new FakeEmbedder(), ocr: null });

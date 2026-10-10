@@ -56,17 +56,33 @@ describe('login throttling', () => {
     expect((await login(studentName, 'wrong-pass', '10.0.2.99')).status).toBe(429);
   });
 
-  it('successful logins do not count toward the limit', async () => {
-    for (let i = 0; i < 15; i++) expect((await login(studentName, SEED_PASSWORD)).status).toBe(200);
-    expect((await login(studentName, 'wrong-pass')).status).toBe(401);
+  it('successful logins do not count toward the per-username limit', async () => {
+    for (let i = 0; i < 15; i++) expect((await login(studentName, SEED_PASSWORD, `10.0.4.${i}`)).status).toBe(200);
+    expect((await login(studentName, 'wrong-pass', '10.0.4.99')).status).toBe(401);
   });
 
-  it('50 failed attempts from one IP across usernames → 429; other IPs unaffected', async () => {
-    for (let i = 0; i < 50; i++) expect((await login(`nobody_${i}`, 'wrong-pass', '10.9.9.9')).status).toBe(401);
+  it('successful logins never consume the per-IP budget: 150 successes from one IP all succeed', async () => {
+    for (let i = 0; i < 150; i++) expect((await login(studentName, SEED_PASSWORD, '10.8.8.8')).status).toBe(200);
+  });
+
+  it('100 failures across usernames from one IP → the 101st attempt is 429, even with interleaved successes', async () => {
+    for (let i = 0; i < 100; i++) {
+      expect((await login(`nobody_${i}`, 'wrong-pass', '10.9.9.9')).status).toBe(401);
+      if (i % 10 === 0) expect((await login(studentName, SEED_PASSWORD, '10.9.9.9')).status).toBe(200);
+    }
     verifySpy.mockClear();
     expect((await login('nobody_x', 'wrong-pass', '10.9.9.9')).status).toBe(429);
+    expect((await login(studentName, SEED_PASSWORD, '10.9.9.9')).status).toBe(429);
     expect(verifySpy).not.toHaveBeenCalled();
     expect((await login(studentName, SEED_PASSWORD, '10.9.9.10')).status).toBe(200);
+  });
+
+  it('a concurrent burst of 120 failing logins across usernames from one IP: at most 100 reach password verification', async () => {
+    verifySpy.mockClear();
+    const res = await Promise.all(Array.from({ length: 120 }, (_, i) => login(`burst_${i}`, 'wrong-pass', '10.7.7.7')));
+    expect(res.filter((r) => r.status === 401)).toHaveLength(100);
+    expect(res.filter((r) => r.status === 429)).toHaveLength(20);
+    expect(verifySpy.mock.calls.length).toBeLessThanOrEqual(100);
   });
 
   it('limits are env-configurable', async () => {

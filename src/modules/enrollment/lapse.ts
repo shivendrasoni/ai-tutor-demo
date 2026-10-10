@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
 import { studentProfiles, subscriptions } from '@/db/schema';
 import type { StudentStatus } from '@/modules/tenancy/actor';
@@ -35,6 +35,16 @@ export async function lapseExpired(now: Date, onlyStudentId?: string): Promise<n
 /** True when an `active` student's subscription period has already ended at `now`. */
 export const isPeriodExpired = (periodEnd: Date | null | undefined, now: Date): boolean =>
   !!periodEnd && periodEnd.getTime() < now.getTime();
+
+/**
+ * SQL mirror of `isPeriodExpired` + the lapse rule in `effectiveStudentStatus`, for list/summary reads:
+ * a stored `active` profile whose subscription `current_period_end < now` is `lapsed` (a null period end
+ * never lapses). Requires `studentProfiles` and a (left-joined) `subscriptions` in the query. Read-only:
+ * nothing is written; the write stays in `lapseExpired`.
+ */
+export function effectiveStatusSql(now: Date): SQL<string> {
+  return sql<string>`(case when ${studentProfiles.status} = 'active' and ${subscriptions.currentPeriodEnd} < ${now.toISOString()}::timestamptz then 'lapsed' else ${studentProfiles.status} end)`;
+}
 
 /**
  * The single source of truth for "may this student use the product": the stored status, except that an

@@ -83,6 +83,11 @@ describe('selectEmbedder', () => {
     expect(() => selectEmbedder({ EMBEDDER: 'openai' } as any)).toThrow(/OPENAI_API_KEY/);
   });
 
+  it('keyless mock mode uses the fake embedder; an explicit EMBEDDER still wins', () => {
+    expect(selectEmbedder({ AI_MOCK: '1' } as any)).toBeInstanceOf(FakeEmbedder);
+    expect(selectEmbedder({ AI_MOCK: '1', EMBEDDER: 'openai', OPENAI_API_KEY: 'k' } as any)).toBeInstanceOf(OpenAIEmbedder);
+  });
+
   it('OpenAIEmbedder reports its model id and dimension', () => {
     const o = new OpenAIEmbedder();
     expect(o.modelId).toBe('openai:text-embedding-3-small');

@@ -6,6 +6,8 @@ import { createSession } from '@/modules/tenancy';
 import { recordPayment, removeStudent } from '@/modules/enrollment';
 import { DomainError } from '@/lib/errors';
 import { handle } from '@/lib/http';
+import { addInterval } from '@/modules/enrollment/periods';
+import { recentPaidAt } from '../helpers/dates';
 import { resetDb, SEED_PASSWORD, seedTwoSchools, type Seed } from '../helpers/db';
 
 import * as loginRoute from '@/app/api/auth/login/route';
@@ -443,15 +445,17 @@ describe('platform', () => {
       [seed.a.subscriptionId, seed.b.subscriptionId].sort(),
     );
 
+    const paidAt = recentPaidAt();
+    const periodEnd = addInterval(paidAt, 'monthly'); // the seeded plan is monthly
     const res = await paymentsRoute.POST(req('POST', '/api/platform/payments', {
       cookie,
-      body: { subscriptionId: seed.a.subscriptionId, amountMinor: 49900, paidAt: '2026-10-01T00:00:00.000Z' },
+      body: { subscriptionId: seed.a.subscriptionId, amountMinor: 49900, paidAt: paidAt.toISOString() },
     }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ periodStart: '2026-10-01T00:00:00.000Z', periodEnd: '2026-11-01T00:00:00.000Z' });
+    expect(await res.json()).toEqual({ periodStart: paidAt.toISOString(), periodEnd: periodEnd.toISOString() });
 
     const st = await meStatusRoute.GET(req('GET', '/api/me/status', { cookie: await sidFor(seed.a.studentId) }));
-    expect(await st.json()).toMatchObject({ status: 'active', periodEnd: '2026-11-01T00:00:00.000Z' });
+    expect(await st.json()).toMatchObject({ status: 'active', periodEnd: periodEnd.toISOString() });
   });
 
   it('payments: missing/invalid paidAt → 400 VALIDATION', async () => {
@@ -463,7 +467,7 @@ describe('platform', () => {
 
   it('payments: amountMinor above int4 max → 400 VALIDATION (not a 500)', async () => {
     const cookie = await sidFor(seed.platform.userId);
-    const body = { subscriptionId: seed.a.subscriptionId, amountMinor: 2147483648, paidAt: '2026-10-01T00:00:00.000Z' };
+    const body = { subscriptionId: seed.a.subscriptionId, amountMinor: 2147483648, paidAt: recentPaidAt().toISOString() };
     await expectError(await paymentsRoute.POST(req('POST', '/x', { cookie, body })), 400, 'VALIDATION');
   });
 
@@ -472,7 +476,7 @@ describe('platform', () => {
     const cookie = await sidFor(seed.platform.userId);
     const res = await paymentsRoute.POST(req('POST', '/api/platform/payments', {
       cookie,
-      body: { subscriptionId: seed.a.subscriptionId, amountMinor: 49900, paidAt: '2026-10-01T00:00:00.000Z' },
+      body: { subscriptionId: seed.a.subscriptionId, amountMinor: 49900, paidAt: recentPaidAt().toISOString() },
     }));
     await expectError(res, 409, 'STUDENT_REMOVED');
   });
@@ -480,7 +484,7 @@ describe('platform', () => {
   it('payments as school admin → 403', async () => {
     const cookie = await sidFor(seed.a.schoolAdmin.userId);
     const res = await paymentsRoute.POST(req('POST', '/x', {
-      cookie, body: { subscriptionId: seed.a.subscriptionId, amountMinor: 1, paidAt: '2026-10-01T00:00:00.000Z' },
+      cookie, body: { subscriptionId: seed.a.subscriptionId, amountMinor: 1, paidAt: recentPaidAt().toISOString() },
     }));
     await expectError(res, 403, 'FORBIDDEN');
   });

@@ -1,3 +1,4 @@
+import { Client } from 'pg';
 import { PgBoss, type ConstructorOptions } from 'pg-boss';
 
 /** The web process only sends jobs: no maintenance/cron timers and a small pool. The worker keeps a full boss. */
@@ -43,22 +44,114 @@ export async function stopSendBoss(): Promise<void> {
   await boss?.stop();
 }
 
+type QueueOptions = NonNullable<Parameters<PgBoss['createQueue']>[1]>;
+export type QueueSpec = { name: string; options: QueueOptions };
+
 /**
- * Creates a queue. pg-boss cannot change a queue's policy after creation, so a queue left over from an older
- * policy (existing dev DBs) is dropped and recreated; its queued jobs are lost, which the callers' recovery
- * paths (stuck-attempt recovery, the generating reaper, re-upload) already cover.
+ * Send-only queue setup (web process, and the worker after migration): an idempotent `createQueue`, never a drop.
+ * pg-boss cannot change a queue's policy after creation and `deleteQueue` deletes all its jobs, so a policy
+ * mismatch is only warned about here; `migrateQueuePolicies` (worker startup) is the one place that may fix it.
  */
 export async function ensureQueue(
-  boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'deleteQueue'>,
+  boss: Pick<PgBoss, 'createQueue' | 'getQueue'>,
   name: string,
-  options: NonNullable<Parameters<PgBoss['createQueue']>[1]>,
+  options: QueueOptions,
 ): Promise<void> {
   const existing = await boss.getQueue(name);
-  const wanted = options.policy ?? 'standard';
   if (existing) {
-    if (existing.policy === wanted) return;
-    console.warn(`[pg-boss] recreating queue ${name}: policy ${existing.policy} -> ${wanted}`);
-    await boss.deleteQueue(name);
+    const wanted = options.policy ?? 'standard';
+    if (existing.policy !== wanted) {
+      console.warn(`[pg-boss] queue ${name} has policy ${existing.policy}, expected ${wanted}; the worker migrates it at startup`);
+    }
+    return;
   }
   await boss.createQueue(name, options);
+}
+
+const MIGRATION_LOCK_KEY = 'tutor:pgboss-queue-policy-migration';
+const LIVE_STATES = `('created','retry','active')`;
+
+async function liveJobCount(boss: Pick<PgBoss, 'getDb'>, name: string): Promise<number> {
+  const { rows } = await boss
+    .getDb()
+    .executeSql(`select count(*)::int as n from pgboss.job where name = $1 and state in ${LIVE_STATES}`, [name]);
+  return rows[0].n as number;
+}
+
+/**
+ * Worker startup only. Under a Postgres advisory lock (so concurrent workers serialize), creates missing queues and
+ * drops and recreates a queue whose policy differs, but only when it has no job in created/retry/active. Otherwise it
+ * logs an error and keeps the old queue (and its jobs); the next worker start retries once the queue has drained.
+ * Jobs in finished states (completed/cancelled/failed) are history and are lost with the drop.
+ */
+export async function migrateQueuePolicies(
+  boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'deleteQueue' | 'getDb'>,
+  specs: QueueSpec[],
+  // Test seam.
+  makeLockClient: () => Client = () => new Client({ connectionString: process.env.DATABASE_URL_OWNER }),
+): Promise<void> {
+  // A session-level lock needs one dedicated connection held for the whole migration, so it is not taken through boss's pool.
+  const lock = makeLockClient();
+  // Without a listener a dropped connection is an unhandled 'error' event that crashes the worker. A dead session
+  // also means the lock is gone, so the migration stops (checked before every step) and the error is rethrown.
+  let lockError: Error | null = null;
+  lock.on('error', (e) => {
+    lockError = e;
+    console.error('[pg-boss] queue migration lock connection failed; aborting migration', e);
+  });
+  try {
+    await lock.connect();
+    await lock.query('select pg_advisory_lock(hashtext($1))', [MIGRATION_LOCK_KEY]);
+    for (const { name, options } of specs) {
+      await new Promise((r) => setImmediate(r)); // let a pending 'error' event surface
+      if (lockError) throw lockError;
+      const existing = await boss.getQueue(name);
+      const wanted = options.policy ?? 'standard';
+      if (!existing) {
+        await boss.createQueue(name, options);
+        continue;
+      }
+      if (existing.policy === wanted) continue;
+      let live = await liveJobCount(boss, name);
+      // Re-check immediately before the drop: a web `send` may have landed since the first count. This narrows the
+      // send-vs-drop window to the gap between this count and `deleteQueue`; it cannot close it (see the deploy notes).
+      if (live === 0) live = await liveJobCount(boss, name);
+      if (live > 0) {
+        console.error(
+          `[pg-boss] NOT migrating queue ${name} (policy ${existing.policy} -> ${wanted}): ${live} live job(s). Keeping the old queue; drain it and restart the worker.`,
+        );
+        continue;
+      }
+      await boss.deleteQueue(name);
+      console.warn(`[pg-boss] recreated empty queue ${name}: policy ${existing.policy} -> ${wanted}`);
+      await boss.createQueue(name, options);
+    }
+  } finally {
+    // Closing the session releases the advisory lock even if the unlock query would fail.
+    await lock.end().catch(() => undefined);
+  }
+}
+
+/** True when a job with this singletonKey is waiting or running (created/retry/active) on the queue. */
+export async function hasPendingJob(boss: Pick<PgBoss, 'getDb'>, queue: string, key: string): Promise<boolean> {
+  const { rows } = await boss
+    .getDb()
+    .executeSql(`select count(*)::int as n from pgboss.job where name = $1 and singleton_key = $2 and state in ${LIVE_STATES}`, [queue, key]);
+  return rows[0].n > 0;
+}
+
+/**
+ * `boss.send` on a stately queue returns null when it dedupes against a pending job. That is "already queued" only
+ * if such a job really exists; otherwise the job was lost, so throw and let the caller mark the work failed.
+ */
+export async function sendDeduped(
+  boss: Pick<PgBoss, 'send' | 'getDb'>,
+  queue: string,
+  data: object,
+  options: NonNullable<Parameters<PgBoss['send']>[2]> & { singletonKey: string },
+): Promise<void> {
+  const id = await boss.send(queue, data, options);
+  if (id === null && !(await hasPendingJob(boss, queue, options.singletonKey))) {
+    throw new Error(`Job for ${queue}/${options.singletonKey} was not queued (deduped but no pending job exists)`);
+  }
 }

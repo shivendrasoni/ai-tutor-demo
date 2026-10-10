@@ -1,9 +1,9 @@
 import './lib/load-env'; // must stay first: '@/db/client' builds its pools from DATABASE_URL_* at import time
 import { getDeps, startWorker } from '@/modules/content';
-import { registerStudyToolsWorkers } from '@/modules/studytools';
+import { registerStudyToolsWorkers, STUDY_QUEUE_SPECS } from '@/modules/studytools';
 
 const { blobs, embedder, ocr } = getDeps();
-const worker = await startWorker({ blobs, embedder, ocr });
+const worker = await startWorker({ blobs, embedder, ocr }, STUDY_QUEUE_SPECS); // migrates queue policies under an advisory lock
 await registerStudyToolsWorkers(worker.boss); // same pg-boss instance as ingest
 console.log('[worker] ingest worker started');
 

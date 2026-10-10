@@ -1,5 +1,6 @@
 import { openai } from '@ai-sdk/openai';
 import { generateText, type LanguageModel } from 'ai';
+import { aiMockMode } from '@/lib/ai-mode';
 
 export interface OcrExtractor {
   extract(page: { pdf: Uint8Array; pageNumber: number }): Promise<string>;
@@ -13,6 +14,13 @@ export class FakeOcrExtractor implements OcrExtractor {
   async extract(page: { pdf: Uint8Array; pageNumber: number }): Promise<string> {
     this.calls.push(page.pageNumber);
     return this.textFor(page.pageNumber);
+  }
+}
+
+/** Keyless stand-in: a fixed placeholder so low-text pages still get indexable text. */
+export class MockOcrExtractor implements OcrExtractor {
+  async extract(page: { pdf: Uint8Array; pageNumber: number }): Promise<string> {
+    return `[mock OCR] page ${page.pageNumber}: no text layer; OCR is mocked in this environment.`;
   }
 }
 
@@ -52,6 +60,6 @@ export class ModelOcrExtractor implements OcrExtractor {
 }
 
 export function selectOcr(env: NodeJS.ProcessEnv = process.env): OcrExtractor | null {
-  if (!env.OCR_MODEL) return null;
+  if (!env.OCR_MODEL) return aiMockMode(env) ? new MockOcrExtractor() : null;
   return new ModelOcrExtractor({ model: env.OCR_MODEL });
 }

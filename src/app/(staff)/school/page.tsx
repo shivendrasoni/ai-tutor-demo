@@ -8,9 +8,10 @@ import AddStudentForm from './_components/AddStudentForm';
 import BranchCodes from './_components/BranchCodes';
 import EnrollmentCards from './_components/EnrollmentCards';
 import EnrollmentTable from './_components/EnrollmentTable';
+import SetupSection from './_components/SetupSection';
 import StudentFilters from './_components/StudentFilters';
 import StudentsTable from './_components/StudentsTable';
-import { loadSchoolDashboard } from './loaders';
+import { loadSchoolDashboard, loadSchoolSetup } from './loaders';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'School · AI Tutor for Schools' };
@@ -26,8 +27,9 @@ export default async function SchoolPage({ searchParams }: { searchParams: Promi
   if (sp.schoolId !== undefined) return <NotAllowed />;
 
   let data: Awaited<ReturnType<typeof loadSchoolDashboard>>;
+  let setup: Awaited<ReturnType<typeof loadSchoolSetup>>;
   try {
-    data = await loadSchoolDashboard(actor, q);
+    [data, setup] = await Promise.all([loadSchoolDashboard(actor, q), loadSchoolSetup(actor)]);
   } catch (e) {
     if (e instanceof DomainError && e.code === 'FORBIDDEN') return <NotAllowed />;
     if (e instanceof DomainError && e.code === 'VALIDATION') {
@@ -54,6 +56,7 @@ export default async function SchoolPage({ searchParams }: { searchParams: Promi
       </Card>
       <AddStudentForm branches={data.branches} />
       <BranchCodes branches={data.branches} />
+      <SetupSection {...setup} />
     </>
   );
 }

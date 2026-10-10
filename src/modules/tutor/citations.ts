@@ -36,7 +36,7 @@ export class CitationTracker {
   }
 }
 
-const CITE_RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+const CITE_RE = /\[(\d+(?:\s*,\s*\d+)*)\](?!\()/g;
 
 export function parseCitations(text: string, tracker: CitationTracker): Citation[] {
   const seen = new Set<number>();

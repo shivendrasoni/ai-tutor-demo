@@ -73,6 +73,7 @@ describe('search_curriculum tool', () => {
     const search = vi.fn().mockResolvedValue([hit('a')]);
     const { tool } = make(search);
     await tool.execute({ query: 'q', subject: 'physics', chapter: 'FRACTIONS' });
+    expect(search.mock.calls[0][1]).toBe('q');
     expect(search.mock.calls[0][2]).toEqual({ subjectIds: ['p'], chapterIds: ['c1'] });
     await tool.execute({ query: 'q', subject: 'Nope' });
     expect(search.mock.calls[1][2]).toEqual({});
@@ -81,6 +82,17 @@ describe('search_curriculum tool', () => {
     const { tool: t2 } = make(s2, { subjectIds: ['m'] });
     await t2.execute({ query: 'q', subject: 'Physics', chapter: 'Fractions' });
     expect(s2.mock.calls[0][2]).toEqual({ subjectIds: ['m'] });
+  });
+
+  it('retries unfiltered when model-supplied-name filters give an empty result', async () => {
+    const search = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([hit('z')]);
+    const { tool, tracker } = make(search);
+    const out = await tool.execute({ query: 'q', subject: 'Physics' });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[0][2]).toEqual({ subjectIds: ['p'] });
+    expect(search.mock.calls[1][2]).toEqual({});
+    expect(tracker.filterFallback).toBe(true);
+    expect(out).toContain('[1] Book z');
   });
 
   it('REVIEW FOCUS 1: numbering is turn-wide and stable across calls and the retried search', async () => {

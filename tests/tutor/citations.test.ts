@@ -41,6 +41,12 @@ describe('parseCitations', () => {
     expect(parseCitations('see [1, 2] and [x] and [link](http://a.b)', t).map((c) => c.n)).toEqual([1, 2]);
     expect(parseCitations('[x] [link](http://a.b)', t)).toEqual([]);
   });
+  it('ignores markdown links like [1](http://x) but keeps a plain [1]', () => {
+    const t = tracker();
+    expect(parseCitations('[1](http://x) and [2](url)', t)).toEqual([]);
+    expect(parseCitations('[1](http://x) but also [2] here', t).map((c) => c.n)).toEqual([2]);
+    expect(parseCitations('[1](http://x) and [1]', t).map((c) => c.n)).toEqual([1]);
+  });
   it('citation carries book, chapter, pages from the hit', () => {
     expect(parseCitations('[1]', tracker())).toEqual([
       { n: 1, chunkId: 'A', itemTitle: 'Book A', chapterTitle: 'Chapter A', pageStart: 5, pageEnd: 7 },

@@ -23,20 +23,30 @@ export async function finalizeAttempt(tx: Tx, attemptId: string): Promise<boolea
   return true;
 }
 
+export const NEEDS_REVIEW_FEEDBACK = 'This answer could not be graded automatically. Your teacher can review it.';
+
 /**
- * Fallback for questions that will never be graded (for example a failed enqueue): every question without a result
- * gets score 0 with `needsReview`, then the attempt is finalized. Task 7 reuses this for final-retry grader failures.
+ * Fallback for questions that will never be graded (a failed enqueue, or a grader that failed its final retry):
+ * every question without a result gets score 0 with `needsReview`, then the attempt is finalized, all in one
+ * transaction. Existing results are never touched, so a late grade cannot be overwritten and vice versa.
+ * A transient failure is retried once; a second failure is rethrown so the caller never swallows it.
  */
 export async function failPendingQuestions(schoolId: string, attemptId: string): Promise<void> {
-  await withTenant(schoolId, async (tx) => {
-    const [a] = await tx.select().from(attempts).where(eq(attempts.id, attemptId)).for('update');
-    if (!a || a.status !== 'grading') return;
-    const [art] = await tx.select({ content: artifacts.content }).from(artifacts).where(eq(artifacts.id, a.artifactId));
-    const results: Results = { ...((a.results ?? {}) as Results) };
-    for (const q of flattenQuestions(art?.content)) {
-      if (!results[q.id]) results[q.id] = { score: 0, maxScore: q.marks, needsReview: true };
-    }
-    await tx.update(attempts).set({ results }).where(eq(attempts.id, attemptId));
-    await finalizeAttempt(tx, attemptId);
-  });
+  const run = () =>
+    withTenant(schoolId, async (tx) => {
+      const [a] = await tx.select().from(attempts).where(eq(attempts.id, attemptId)).for('update');
+      if (!a || a.status !== 'grading') return;
+      const [art] = await tx.select({ content: artifacts.content }).from(artifacts).where(eq(artifacts.id, a.artifactId));
+      const results: Results = { ...((a.results ?? {}) as Results) };
+      for (const q of flattenQuestions(art?.content)) {
+        if (!results[q.id]) results[q.id] = { score: 0, maxScore: q.marks, feedback: NEEDS_REVIEW_FEEDBACK, needsReview: true };
+      }
+      await tx.update(attempts).set({ results }).where(eq(attempts.id, attemptId));
+      await finalizeAttempt(tx, attemptId);
+    });
+  try {
+    await run();
+  } catch {
+    await run();
+  }
 }

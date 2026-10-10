@@ -13,6 +13,7 @@
     "test:isolation": "vitest run tests/isolation",
     "admin": "tsx scripts/admin.ts",
     "job:lapse": "tsx scripts/lapse.ts",
+    "seed:skills": "tsx scripts/seed-skills.ts",
     "worker": "tsx src/worker.ts",
     "e2e": "playwright test"
   },

@@ -132,10 +132,17 @@ describe('recordPayment', () => {
     expect(await codeOf(pay('2027-01-31T00:00:00Z', {}, 'nope'))).toBe('NOT_FOUND');
   });
 
+  it('normalizes currency (trim, upper-case) before validating', async () => {
+    await pay('2027-01-31T00:00:00Z', { currency: ' inr ' });
+    const [p] = await withPlatform((tx) => tx.select().from(payments));
+    expect(p.currency).toBe('INR');
+  });
+
   it('validates amount, currency, and paidAt', async () => {
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { amountMinor: 0 }))).toBe('VALIDATION');
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { amountMinor: 1.5 }))).toBe('VALIDATION');
-    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'inr' }))).toBe('VALIDATION');
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'rupee' }))).toBe('VALIDATION');
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'IN' }))).toBe('VALIDATION');
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { paidAt: new Date('x') }))).toBe('VALIDATION');
     expect(await paymentCount()).toBe(0);
   });
@@ -177,6 +184,28 @@ describe('recordPayment idempotency and date bounds', () => {
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-9' }, seed.b.subscriptionId))).toBe('ok');
     expect(await codeOf(pay('2027-02-01T00:00:00Z'))).toBe('ok');
     expect(await codeOf(pay('2027-02-02T00:00:00Z'))).toBe('ok');
+  });
+
+  it('trims externalRef: whitespace-only is VALIDATION and "REF1 " duplicates "REF1"', async () => {
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { externalRef: '   ' }))).toBe('VALIDATION');
+    expect(await paymentCount()).toBe(0);
+    await pay('2027-01-31T00:00:00Z', { externalRef: 'REF1' });
+    const err = await pay('2027-01-31T00:00:00Z', { externalRef: 'REF1 ' }).catch((e) => e);
+    expect(err.details).toEqual({ reason: 'duplicate_payment' });
+    await pay('2027-02-01T00:00:00Z', { externalRef: ' REF2 ' });
+    const rows = await withPlatform((tx) => tx.select().from(payments));
+    expect(rows.map((r) => r.externalRef).sort()).toEqual(['REF1', 'REF2']);
+  });
+
+  it('a payment exactly at the period end extends from the existing end', async () => {
+    await pay('2027-01-31T00:00:00Z'); // ends 2027-02-28
+    const r = await pay('2027-02-28T00:00:00Z');
+    expect(r.periodStart.toISOString()).toBe('2027-01-31T00:00:00.000Z');
+    expect(r.periodEnd.toISOString()).toBe('2027-03-28T00:00:00.000Z');
+  });
+
+  it('a malformed subscription id is NOT_FOUND even with an invalid paidAt', async () => {
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { paidAt: new Date('x') }, 'nope'))).toBe('NOT_FOUND');
   });
 
   it('rejects a paidAt more than 5 minutes in the future (service level, so the CLI is covered)', async () => {

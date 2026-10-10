@@ -25,6 +25,11 @@ const sessionCount = async (id: string) =>
 const codeOf = (p: Promise<unknown>) => p.then(() => 'ok', (e) => e.code);
 
 describe('listStudents', () => {
+  it('tolerates null or undefined filters', async () => {
+    expect(await listStudents(seed.a.schoolAdmin, null)).toHaveLength(1);
+    expect(await listStudents(seed.a.schoolAdmin, undefined)).toHaveLength(1);
+  });
+
   it('school_admin lists own school, with StudentRow shape; status filter narrows', async () => {
     const rows = await listStudents(seed.a.schoolAdmin, {});
     expect(rows).toHaveLength(1);
@@ -224,6 +229,20 @@ describe('resetStudentPassword', () => {
     expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, seed.a.studentId, 'valid-password'))).toBe('STUDENT_REMOVED');
     await withPlatform((tx) => tx.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, seed.b.studentId)));
     expect(await codeOf(resetStudentPassword(seed.b.schoolAdmin, seed.b.studentId, 'valid-password'))).toBe('VALIDATION');
+  });
+
+  it('checks authz, then removed, then not-signed-up, then password strength', async () => {
+    await withPlatform((tx) => tx.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, seed.b.studentId)));
+    // not signed up + weak password: the not-signed-up reason wins, with a recognisable detail
+    const err = await resetStudentPassword(seed.b.schoolAdmin, seed.b.studentId, 'short').catch((e) => e);
+    expect(err.code).toBe('VALIDATION');
+    expect(err.details).toEqual({ reason: 'not_signed_up' });
+    expect(err.message).toContain('invite link');
+    // authz beats everything
+    expect(await codeOf(resetStudentPassword(seed.b.teacher, seed.b.studentId, 'short'))).toBe('FORBIDDEN');
+    // removed beats weak password
+    await removeStudent(seed.a.schoolAdmin, seed.a.studentId);
+    expect(await codeOf(resetStudentPassword(seed.a.schoolAdmin, seed.a.studentId, 'short'))).toBe('STUDENT_REMOVED');
   });
 });
 

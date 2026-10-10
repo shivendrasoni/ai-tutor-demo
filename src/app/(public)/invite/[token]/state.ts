@@ -1,22 +1,20 @@
-import { GENERIC_ERROR, NETWORK_ERROR, type ApiResult } from '../../_lib/api';
+import { genericMessage, type ApiResult } from '../../_lib/api';
 
-export type Invite = { studentName: string; schoolName: string; branchName: string; grade: number };
-export type Load =
-  | { kind: 'loading' }
+export type InviteInfo = { studentName: string; schoolName: string; branchName: string; grade: number };
+
+export type InviteLoadState =
+  | { kind: 'ready'; invite: InviteInfo }
   | { kind: 'invalid' }
-  | { kind: 'error'; message: string }
-  | { kind: 'ready'; invite: Invite };
+  | { kind: 'error'; message: string };
 
 export const INVITE_UNAVAILABLE = {
   title: 'Invite unavailable',
   copy: 'This invite link has expired or was already used. Ask your school for a new one.',
 };
 
-const isInvalid = (status: number) => status === 404 || status === 410;
-
-/** Maps the GET /api/invite/:token result to what the page renders. */
-export function inviteLoadState(r: ApiResult<Invite>): Load {
+/** 404/410 mean the invite is gone for good; anything else is a retryable failure, not "expired". */
+export function inviteLoadState(r: ApiResult<InviteInfo>): InviteLoadState {
   if (r.ok) return { kind: 'ready', invite: r.data };
-  if (isInvalid(r.error.status)) return { kind: 'invalid' };
-  return { kind: 'error', message: r.error.code === 'NETWORK' ? NETWORK_ERROR : GENERIC_ERROR };
+  if (r.error.status === 404 || r.error.status === 410) return { kind: 'invalid' };
+  return { kind: 'error', message: genericMessage(r.error) };
 }

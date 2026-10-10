@@ -1,56 +1,41 @@
-import { and, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
 import { studentProfiles, subscriptions } from '@/db/schema';
 import type { StudentStatus } from '@/modules/tenancy/actor';
 
 /**
- * Lapses every active subscription whose period ended before `now`, plus its active profile.
- * `onlyStudentId` limits it to one student (used for read-time lapse).
+ * SQL mirror of the read-time lapse rule. Needs `student_profiles` and a (left) joined `subscriptions` in the query:
+ * a stored 'active' student whose period ended (strict `<`) is 'lapsed'; a null period end never lapses;
+ * every other stored status is returned unchanged.
+ */
+export function effectiveStatusSql(now: Date): SQL<StudentStatus> {
+  return sql<StudentStatus>`(case when student_profiles.status = 'active' and subscriptions.current_period_end < ${now.toISOString()}::timestamptz then 'lapsed' else student_profiles.status end)`;
+}
+
+/**
+ * Flips active subscriptions whose period ended (`current_period_end < now`) to lapsed, together with their
+ * active profiles. Optionally limited to one student. Returns the number of subscriptions lapsed.
+ * Lock order (subscription, then profile) matches recordPayment and removeStudent.
  */
 export async function lapseExpired(now: Date, onlyStudentId?: string): Promise<number> {
   return withPlatform(async (tx) => {
-    const rows = await tx
-      .update(subscriptions)
-      .set({ status: 'lapsed' })
-      .where(
-        and(
-          eq(subscriptions.status, 'active'),
-          lt(subscriptions.currentPeriodEnd, now),
-          onlyStudentId ? eq(subscriptions.studentId, onlyStudentId) : undefined,
-        ),
-      )
-      .returning({ studentId: subscriptions.studentId });
-    if (rows.length > 0) {
-      await tx
-        .update(studentProfiles)
-        .set({ status: 'lapsed' })
-        .where(
-          and(eq(studentProfiles.status, 'active'), inArray(studentProfiles.userId, rows.map((r) => r.studentId))),
-        );
+    const lapsed = await tx.execute(sql`
+      update subscriptions set status = 'lapsed'
+      where status = 'active'
+        and current_period_end < ${now.toISOString()}::timestamptz
+        ${onlyStudentId ? sql`and student_id = ${onlyStudentId}` : sql``}
+      returning student_id`);
+    const ids = lapsed.rows.map((r) => String(r.student_id));
+    if (ids.length > 0) {
+      await tx.execute(sql`
+        update student_profiles set status = 'lapsed'
+        where status = 'active' and user_id in (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
     }
-    return rows.length;
+    return ids.length;
   });
 }
 
-/** True when an `active` student's subscription period has already ended at `now`. */
-export const isPeriodExpired = (periodEnd: Date | null | undefined, now: Date): boolean =>
-  !!periodEnd && periodEnd.getTime() < now.getTime();
-
-/**
- * SQL mirror of `isPeriodExpired` + the lapse rule in `effectiveStudentStatus`, for list/summary reads:
- * a stored `active` profile whose subscription `current_period_end < now` is `lapsed` (a null period end
- * never lapses). Requires `studentProfiles` and a (left-joined) `subscriptions` in the query. Read-only:
- * nothing is written; the write stays in `lapseExpired`.
- */
-export function effectiveStatusSql(now: Date): SQL<string> {
-  return sql<string>`(case when ${studentProfiles.status} = 'active' and ${subscriptions.currentPeriodEnd} < ${now.toISOString()}::timestamptz then 'lapsed' else ${studentProfiles.status} end)`;
-}
-
-/**
- * The single source of truth for "may this student use the product": the stored status, except that an
- * `active` student whose period has ended is `lapsed` even if the daily job has not run yet (the rows are
- * flipped here too). Null when there is no such student profile.
- */
+/** Read-time rule: stored 'active' with an ended period is lapsed (and flipped now); otherwise the stored status. Null if no profile. */
 export async function effectiveStudentStatus(studentUserId: string, now: Date = new Date()): Promise<StudentStatus | null> {
   const [row] = await withPlatform((tx) =>
     tx
@@ -60,7 +45,7 @@ export async function effectiveStudentStatus(studentUserId: string, now: Date = 
       .where(eq(studentProfiles.userId, studentUserId)),
   );
   if (!row) return null;
-  if (row.status === 'active' && isPeriodExpired(row.periodEnd, now)) {
+  if (row.status === 'active' && row.periodEnd && row.periodEnd.getTime() < now.getTime()) {
     await lapseExpired(now, studentUserId);
     return 'lapsed';
   }

@@ -1,36 +1,13 @@
 import type { z } from 'zod';
 import { DomainError, type ErrorCode } from '@/lib/errors';
 import { redactError } from '@/lib/redact';
-
-export { redactError };
 import { resolveActor, SESSION_TTL_MS, type Actor } from '@/modules/tenancy';
 
+export { redactError };
+
 export const SESSION_COOKIE = 'sid';
+export const MAX_BODY_BYTES = 100 * 1024;
 
-export const STATUS: Record<ErrorCode, number> = {
-  VALIDATION: 400,
-  INVALID_USERNAME: 400,
-  WEAK_PASSWORD: 400,
-  INVALID_CREDENTIALS: 401,
-  FORBIDDEN: 403,
-  ACCOUNT_REMOVED: 403,
-  INVALID_CODE: 404,
-  NOT_FOUND: 404,
-  USERNAME_TAKEN: 409,
-  ATTEMPT_EXPIRED: 409,
-  STUDENT_REMOVED: 409,
-  CODE_DISABLED: 410,
-  INVITE_INVALID: 410,
-  BUDGET_EXCEEDED: 429,
-  GENERATION_LIMIT: 429,
-  RATE_LIMITED: 429,
-  TUTOR_BUSY: 503,
-};
-
-/** HTTP status for a domain error code (400 for unknown codes). */
-export const statusFor = (code: string): number => (STATUS as Record<string, number>)[code] ?? 400;
-
-/** HTTP-only error (not a domain outcome), e.g. a missing/expired session. */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -42,22 +19,35 @@ export class HttpError extends Error {
   }
 }
 
-export function json(data: unknown, init?: ResponseInit): Response {
-  return Response.json(data, init);
+export const STATUS: Record<ErrorCode, number> = {
+  VALIDATION: 400,
+  INVALID_USERNAME: 400,
+  WEAK_PASSWORD: 400,
+  INVALID_CREDENTIALS: 401,
+  FORBIDDEN: 403,
+  ACCOUNT_REMOVED: 403,
+  INVALID_CODE: 404,
+  NOT_FOUND: 404,
+  USERNAME_TAKEN: 409,
+  STUDENT_REMOVED: 409,
+  ATTEMPT_EXPIRED: 409,
+  CODE_DISABLED: 410,
+  INVITE_INVALID: 410,
+  RATE_LIMITED: 429,
+  BUDGET_EXCEEDED: 429,
+  GENERATION_LIMIT: 429,
+  TUTOR_BUSY: 503,
+};
+
+export const statusFor = (code: string): number => STATUS[code as ErrorCode] ?? 400;
+
+export function json(body: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  headers.set('content-type', 'application/json');
+  return new Response(JSON.stringify(body), { ...init, headers });
 }
 
-function errorResponse(status: number, code: string, message?: string, details?: Record<string, unknown>): Response {
-  const error: Record<string, unknown> = { code };
-  if (message !== undefined) error.message = message;
-  if (details !== undefined) error.details = details;
-  const headers: Record<string, string> = {};
-  if (code === 'RATE_LIMITED' && typeof details?.retryAfterMs === 'number') {
-    headers['retry-after'] = String(Math.max(1, Math.ceil(details.retryAfterMs / 1000)));
-  }
-  return json({ error }, { status, headers });
-}
-
-/** Wraps a route handler: maps DomainError/HttpError to JSON error responses and anything else to 500 INTERNAL. */
+/** Wraps a route handler: maps DomainError/HttpError to JSON errors; anything else is a logged (redacted) 500. */
 export function handle<A extends unknown[]>(
   fn: (req: Request, ...rest: A) => Promise<Response>,
 ): (req: Request, ...rest: A) => Promise<Response> {
@@ -66,105 +56,115 @@ export function handle<A extends unknown[]>(
       return await fn(req, ...rest);
     } catch (err) {
       if (err instanceof DomainError) {
-        return errorResponse(statusFor(err.code), err.code, err.message, err.details);
+        const headers = new Headers();
+        if (err.code === 'RATE_LIMITED') {
+          const ms = Number(err.details?.retryAfterMs);
+          if (Number.isFinite(ms) && ms > 0) headers.set('retry-after', String(Math.ceil(ms / 1000)));
+        }
+        return json(
+          { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
+          { status: statusFor(err.code), headers },
+        );
       }
-      if (err instanceof HttpError) return errorResponse(err.status, err.code, err.message);
-      // Log a redacted summary only; never the request or the raw error (query params may hold secrets).
-      console.error('Unhandled error in route handler', redactError(err));
-      return errorResponse(500, 'INTERNAL');
+      if (err instanceof HttpError) {
+        return json({ error: { code: err.code, message: err.message } }, { status: err.status });
+      }
+      console.error('Unhandled API error', redactError(err));
+      return json({ error: { code: 'INTERNAL' } }, { status: 500 });
     }
   };
 }
 
-const validation = (message: string, error?: z.ZodError) =>
-  new DomainError(
-    'VALIDATION',
-    message,
-    error ? { issues: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) } : undefined,
-  );
-
-export const MAX_BODY_BYTES = 100 * 1024;
-
-/** True when the Content-Type media type is exactly application/json (parameters such as charset allowed). */
-function isJsonContentType(header: string | null): boolean {
-  return header?.split(';')[0].trim().toLowerCase() === 'application/json';
+export function parseWith<S extends z.ZodTypeAny>(schema: S, value: unknown, message = 'Invalid request'): z.infer<S> {
+  const r = schema.safeParse(value);
+  if (!r.success) {
+    throw new DomainError('VALIDATION', message, {
+      issues: r.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  return r.data;
 }
 
-/**
- * Parses the JSON body with `schema`. Requires `Content-Type: application/json` (so cross-site "simple"
- * form/fetch posts, which cannot set it without a CORS preflight, are refused) and caps the body at
- * MAX_BODY_BYTES. Wrong content type, oversized or malformed bodies, and schema failures are 400 VALIDATION.
- */
-export async function readJson<S extends z.ZodType>(
+async function readCapped(req: Request, maxBytes: number): Promise<string> {
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new DomainError('VALIDATION', 'Request body too large');
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (err instanceof DomainError) throw err;
+    throw new DomainError('VALIDATION', 'Request body could not be read');
+  }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(buf);
+}
+
+/** Reads and validates an application/json body, capped at `maxBytes` (default 100 KB). */
+export async function readJson<S extends z.ZodTypeAny>(
   req: Request,
   schema: S,
   maxBytes: number = MAX_BODY_BYTES,
-): Promise<z.output<S>> {
-  if (!isJsonContentType(req.headers.get('content-type'))) {
-    throw validation('Content-Type must be application/json');
-  }
+): Promise<z.infer<S>> {
+  const type = req.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+  if (type !== 'application/json') throw new DomainError('VALIDATION', 'Content-Type must be application/json');
   const declared = Number(req.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maxBytes) throw validation('Request body is too large');
-  let text: string;
+  if (Number.isFinite(declared) && declared > maxBytes) throw new DomainError('VALIDATION', 'Request body too large');
+  const text = await readCapped(req, maxBytes);
+  let body: unknown;
   try {
-    text = await req.text();
+    body = JSON.parse(text);
   } catch {
-    throw validation('Request body could not be read');
+    throw new DomainError('VALIDATION', 'Invalid JSON body');
   }
-  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw validation('Request body is too large');
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    throw validation('Request body must be valid JSON');
-  }
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) throw validation('Invalid request body', parsed.error);
-  return parsed.data;
-}
-
-/** Parses an object (query params, route params) with `schema`; failures become 400 VALIDATION. */
-export function parseWith<S extends z.ZodType>(schema: S, value: unknown, message = 'Invalid request'): z.output<S> {
-  const parsed = schema.safeParse(value);
-  if (!parsed.success) throw validation(message, parsed.error);
-  return parsed.data;
+  return parseWith(schema, body);
 }
 
 export function readCookie(req: Request, name: string): string | undefined {
   const header = req.headers.get('cookie');
   if (!header) return undefined;
   for (const part of header.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx < 0) continue;
-    if (part.slice(0, idx).trim() !== name) continue;
-    const value = part.slice(idx + 1).trim();
-    try {
-      return decodeURIComponent(value) || undefined;
-    } catch {
-      return undefined;
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) {
+      const v = part.slice(i + 1).trim();
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        return v;
+      }
     }
   }
   return undefined;
 }
 
-export function sessionToken(req: Request): string | undefined {
-  return readCookie(req, SESSION_COOKIE);
-}
+export const sessionToken = (req: Request): string | undefined => readCookie(req, SESSION_COOKIE);
 
-/** Resolves the session cookie to an Actor or throws 401 UNAUTHENTICATED. */
 export async function requireActor(req: Request): Promise<Actor> {
   const actor = await resolveActor(sessionToken(req));
   if (!actor) throw new HttpError(401, 'UNAUTHENTICATED', 'Not signed in');
   return actor;
 }
 
-const secureAttr = () => (process.env.NODE_ENV === 'production' ? '; Secure' : '');
-
-export function sessionCookie(token: string): string {
-  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secureAttr()}`;
+function cookieAttrs(maxAgeSeconds: number): string {
+  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
 }
 
-export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secureAttr()}`;
-}
+export const sessionCookie = (token: string): string =>
+  `${SESSION_COOKIE}=${encodeURIComponent(token)}; ${cookieAttrs(Math.floor(SESSION_TTL_MS / 1000))}`;
+
+export const clearSessionCookie = (): string => `${SESSION_COOKIE}=; ${cookieAttrs(0)}`;

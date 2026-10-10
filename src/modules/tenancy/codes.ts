@@ -1,8 +1,8 @@
 import { randomInt } from 'node:crypto';
 
-/** No 0/O, 1/I: easy to read aloud and type. */
+/** Unambiguous: no I, O, 0 or 1. */
 export const BRANCH_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-export const BRANCH_CODE_LENGTH = 8;
+const BRANCH_CODE_LENGTH = 8;
 
 export function generateBranchCode(): string {
   let out = '';
@@ -10,6 +10,7 @@ export function generateBranchCode(): string {
   return out;
 }
 
+/** Trims and upper-cases user input. */
 export function normalizeBranchCode(raw: string): string {
-  return raw.trim().toUpperCase();
+  return String(raw ?? '').trim().toUpperCase();
 }

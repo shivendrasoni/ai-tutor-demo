@@ -1,36 +1,42 @@
-import { GENERIC_ERROR, NETWORK_ERROR, type ApiResult } from '../_lib/api';
+import { genericMessage, GENERIC_ERROR, type ApiResult } from '../_lib/api';
 
 export type Me = { name: string; roles: string[]; isPlatformAdmin: boolean };
-export type StatusData = { status: string; planName: string | null; periodEnd: string | null };
-export type Resolved =
-  | { kind: 'redirect'; to: '/login' | '/learn' }
-  | { kind: 'need-status' }
+export type StatusInfo = { status: string; planName: string | null; periodEnd: string | null };
+
+export type StatusOutcome =
+  | { kind: 'redirect'; to: string }
   | { kind: 'text'; text: string }
+  | { kind: 'need-status' }
   | { kind: 'error'; message: string };
 
-const COPY: Record<string, string> = {
-  pending_payment:
-    "Your account is waiting for activation. Once your payment is confirmed you'll be able to start learning.",
-  lapsed: 'Your plan has expired. Please contact us to renew.',
-};
-
-const failure = (code: string): Resolved => ({ kind: 'error', message: code === 'NETWORK' ? NETWORK_ERROR : GENERIC_ERROR });
-const signedIn = (me: Me): Resolved => ({ kind: 'text', text: `Signed in as ${me.name}.` });
+export const PENDING_COPY =
+  "Your account is waiting for activation. Once your payment is confirmed you'll be able to start learning.";
+export const LAPSED_COPY = 'Your plan has expired. Please contact us to renew.';
 
 /**
- * Decides what /status shows. Call with `/api/me` first; a student yields `need-status`, then call again with
- * the `/api/me/status` result.
+ * Two-phase: call with /api/me first. Students return 'need-status'; call again with the /api/me/status
+ * result to get the final outcome.
  */
-export function resolveStatus(me: ApiResult<Me>, st?: ApiResult<StatusData>): Resolved {
-  if (!me.ok) return me.error.status === 401 ? { kind: 'redirect', to: '/login' } : failure(me.error.code);
-  if (!me.data.roles.includes('student')) return signedIn(me.data);
-  if (!st) return { kind: 'need-status' };
-  if (!st.ok) {
-    if (st.error.status === 401) return { kind: 'redirect', to: '/login' };
-    if (st.error.status === 403) return signedIn(me.data);
-    return failure(st.error.code);
+export function resolveStatus(me: ApiResult<Me>, status?: ApiResult<StatusInfo>): StatusOutcome {
+  if (!me.ok) {
+    return me.error.status === 401 ? { kind: 'redirect', to: '/login' } : { kind: 'error', message: genericMessage(me.error) };
   }
-  if (st.data.status === 'active') return { kind: 'redirect', to: '/learn' };
-  const text = COPY[st.data.status];
-  return text ? { kind: 'text', text } : failure('INTERNAL');
+  const signedIn: StatusOutcome = { kind: 'text', text: `Signed in as ${me.data.name}.` };
+  if (!me.data.roles.includes('student')) return signedIn;
+  if (!status) return { kind: 'need-status' };
+  if (!status.ok) {
+    if (status.error.status === 401) return { kind: 'redirect', to: '/login' };
+    if (status.error.status === 403) return signedIn;
+    return { kind: 'error', message: genericMessage(status.error) };
+  }
+  switch (status.data.status) {
+    case 'active':
+      return { kind: 'redirect', to: '/learn' };
+    case 'pending_payment':
+      return { kind: 'text', text: PENDING_COPY };
+    case 'lapsed':
+      return { kind: 'text', text: LAPSED_COPY };
+    default:
+      return { kind: 'error', message: GENERIC_ERROR };
+  }
 }

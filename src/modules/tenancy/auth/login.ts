@@ -1,30 +1,39 @@
 import { eq } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
-import { studentProfiles, users } from '@/db/schema';
+import { users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
-import { loadActor, type Actor } from '../actor';
+import { isRemovedStudent, loadActor, type Actor } from '../actor';
 import { hashPassword, verifyPassword } from './passwords';
 import { createSession } from './sessions';
 import { normalizeUsername } from './usernames';
 
-// Fixed-cost dummy hash so unknown users cost the same argon2 verify as real ones.
+// Verified against when the user is unknown or has no password, so those paths cost the same argon2 work as a
+// wrong password (no timing oracle for which usernames exist). Computed once, lazily.
 let dummyHash: Promise<string> | undefined;
-const getDummyHash = () => (dummyHash ??= hashPassword('dummy-password-for-timing'));
+const getDummyHash = () => (dummyHash ??= hashPassword(`dummy-${Math.random()}-${Date.now()}`));
+
+function invalid(): DomainError {
+  return new DomainError('INVALID_CREDENTIALS', 'Wrong username or password');
+}
 
 export async function login(username: string, password: string): Promise<{ token: string; actor: Actor }> {
-  const name = normalizeUsername(username);
-  const [user] = await withPlatform((tx) => tx.select().from(users).where(eq(users.username, name)).limit(1));
+  const name = normalizeUsername(typeof username === 'string' ? username : '');
+  const pw = typeof password === 'string' ? password : '';
 
-  const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), password);
-  if (!user || !user.passwordHash || !ok) throw new DomainError('INVALID_CREDENTIALS');
+  // Look the user up first and run argon2 outside any transaction (no pooled connection held during the hash).
+  const [user] = await withPlatform((tx) =>
+    tx.select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.username, name)).limit(1),
+  );
+  const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), pw);
+  if (!user || !user.passwordHash || !ok) throw invalid();
 
-  // Status is checked only after the password is proven correct.
   const actor = await withPlatform(async (tx) => {
-    const [sp] = await tx.select({ status: studentProfiles.status }).from(studentProfiles).where(eq(studentProfiles.userId, user.id));
-    if (sp?.status === 'removed') throw new DomainError('ACCOUNT_REMOVED');
-    return loadActor(tx, user.id);
+    // Only reached with a correct password, so account state is not revealed to guessers.
+    if (await isRemovedStudent(tx, user.id)) throw new DomainError('ACCOUNT_REMOVED', 'This account has been removed');
+    const loaded = await loadActor(tx, user.id);
+    if (!loaded) throw invalid();
+    return loaded;
   });
-  if (!actor) throw new DomainError('INVALID_CREDENTIALS');
-  const token = await createSession(user.id);
-  return { token, actor };
+
+  return { token: await createSession(actor.userId), actor };
 }

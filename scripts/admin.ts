@@ -1,31 +1,4 @@
-/**
- * Platform admin CLI. Usage: pnpm admin <command> [flags]
- *
- *   create-platform-admin --username <u> --password <p> --name <n>
- *   create-school         --name <n> --board <b>
- *   create-branch         --school <schoolId> --name <n>
- *   create-plan           --name <n> --interval monthly|annual --price-minor <int> [--currency INR]
- *   create-staff          --school <schoolId> [--branch <branchId>] --role school_admin|branch_admin|teacher
- *                         --username <u> --password <p> --name <n>
- *   create-section        --branch <branchId> --grade <5-12> --name <n>
- *   create-subject        --school <schoolId> --name <n>
- *   assign-teacher        --teacher <teacher username> --section <sectionId> --subject <subjectId>
- *   list-school           --school <schoolId>   (branches, sections, subjects and teachers, with ids)
- *   reset-password        --username <student username> [--password <p>] [--as <platform admin username>]
- *                         (admin-initiated student password reset; revokes the student's sessions)
- *   pending
- *   record-payment        --subscription <id> --amount-minor <int> [--currency INR] [--ref <r>] [--paid-at <ISO>]
- *                         --as <platform admin username>   (required)
- *
- * Every command accepts --as <username> (a platform admin); without it a synthetic platform actor is used.
- * Passwords: --password is visible in shell history, `ps`, and pnpm's own "$ tsx ..." command echo;
- * prefer setting ADMIN_PASSWORD in the environment instead (used when --password is omitted), e.g.
- * `ADMIN_PASSWORD=... pnpm admin create-platform-admin --username ops_admin --name Ops`.
- * This script itself never prints passwords.
- * Loads .env (dev DB). Prints one JSON line on success; exit 1 on DomainError, 2 on usage errors.
- */
 import './env';
-import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { asc, eq } from 'drizzle-orm';
@@ -34,20 +7,44 @@ import { branches, schools, sections, users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import { redactError } from '@/lib/redact';
 import { isUuid } from '@/lib/uuid';
-import { createPlan, listPendingSubscriptions, recordPayment, resetStudentPassword } from '@/modules/enrollment';
 import {
-  assignTeacher, createBranch, createSchool, createSection, createStaffUser, createSubject, hashPassword, listSubjects, listTeachers,
-  loadActor, normalizeUsername, requirePlatform,
-  validateCredentials, withUsernameTakenHandling, type Actor, type StaffRole,
+  assertUsernameFree,
+  assignTeacher,
+  createBranch,
+  createSchool,
+  createSection,
+  createStaffUser,
+  createSubject,
+  hashPassword,
+  listSubjects,
+  listTeachers,
+  normalizeUsername,
+  requirePlatform,
+  validateCredentials,
+  withUsernameTakenHandling,
+  type Actor,
+  type StaffRole,
 } from '@/modules/tenancy';
-import { assertUsernameFree } from '@/modules/tenancy/auth/credentials';
+import {
+  createPlan,
+  listPendingSubscriptions,
+  recordPayment,
+  resetStudentPassword,
+  type PlanInterval,
+} from '@/modules/enrollment';
 
 export type Io = { out: (line: string) => void; err: (line: string) => void };
-const defaultIo: Io = { out: (s) => console.log(s), err: (s) => console.error(s) };
 
 class UsageError extends Error {}
 
-const SYNTHETIC_PLATFORM: Actor = {
+type OptSpec = { type: 'string' };
+type Command = {
+  options: string[];
+  required: string[];
+  run: (v: Record<string, string | undefined>, actor: Actor, as: string | undefined) => Promise<unknown>;
+};
+
+const SYNTHETIC_ACTOR: Actor = {
   userId: '00000000-0000-0000-0000-000000000000',
   isPlatformAdmin: true,
   schoolId: null,
@@ -55,248 +52,228 @@ const SYNTHETIC_PLATFORM: Actor = {
   roles: [],
 };
 
-type Flags = Record<string, string | undefined>;
-type Command = { flags: string[]; run: (f: Flags, actor: () => Promise<Actor>, io: Io) => Promise<unknown> };
-
-function req(f: Flags, name: string): string {
-  const v = f[name];
-  if (v === undefined || v === '') throw new UsageError(`--${name} is required`);
-  return v;
+function int(raw: string | undefined, what: string): number {
+  if (raw === undefined || !/^-?\d+$/.test(raw.trim())) throw new DomainError('VALIDATION', `${what} must be a whole number`);
+  return Number(raw.trim());
 }
 
-function password(f: Flags): string {
-  const v = f.password ?? process.env.ADMIN_PASSWORD;
-  if (!v) throw new UsageError('--password (or ADMIN_PASSWORD env var) is required');
-  return v;
+function password(v: Record<string, string | undefined>): string {
+  const p = v.password ?? process.env.ADMIN_PASSWORD;
+  if (!p) throw new UsageError('A password is required: pass --password or set ADMIN_PASSWORD');
+  return p;
 }
 
-function int(f: Flags, name: string): number {
-  const raw = req(f, name);
-  if (!/^-?\d+$/.test(raw)) throw new DomainError('VALIDATION', `--${name} must be an integer`);
-  return Number(raw);
-}
-
-/** Looks up a platform admin by username and builds its Actor. */
-async function actorFor(username: string): Promise<Actor> {
-  const actor = await withPlatform(async (tx) => {
-    const [u] = await tx
-      .select({ id: users.id, isPlatformAdmin: users.isPlatformAdmin })
-      .from(users)
-      .where(eq(users.username, normalizeUsername(username)))
-      .limit(1);
-    return u?.isPlatformAdmin ? loadActor(tx, u.id) : null;
-  });
-  if (!actor?.isPlatformAdmin) throw new DomainError('FORBIDDEN', `--as ${username} is not a platform admin`);
-  return actor;
+async function findUserByUsername(raw: string) {
+  const username = normalizeUsername(raw);
+  const [u] = await withPlatform((tx) =>
+    tx.select({ id: users.id, username: users.username, isPlatformAdmin: users.isPlatformAdmin }).from(users).where(eq(users.username, username)).limit(1),
+  );
+  return u ?? null;
 }
 
 const commands: Record<string, Command> = {
-  'create-platform-admin': {
-    flags: ['username', 'password', 'name'],
-    run: async (f) => {
-      const name = req(f, 'name').trim();
-      const pw = password(f);
-      const username = validateCredentials(req(f, 'username'), pw);
-      if (!name) throw new UsageError('--name is required');
-      const passwordHash = await hashPassword(pw);
-      // Bootstrap: written directly with the platform connection.
-      return withUsernameTakenHandling(username, () =>
-        withPlatform(async (tx) => {
-          await assertUsernameFree(tx, username);
-          const [u] = await tx
-            .insert(users)
-            .values({ username, passwordHash, name, isPlatformAdmin: true })
-            .returning({ id: users.id });
-          return { userId: u.id, username };
-        }),
-      );
-    },
-  },
   'create-school': {
-    flags: ['name', 'board'],
-    run: async (f, actor) => {
-      const input = { name: req(f, 'name'), board: req(f, 'board') };
-      const { id } = await createSchool(await actor(), input);
-      return { schoolId: id };
-    },
+    options: ['name', 'board'],
+    required: ['name', 'board'],
+    run: async (v, actor) => ({ schoolId: (await createSchool(actor, { name: v.name!, board: v.board! })).id }),
   },
   'create-branch': {
-    flags: ['school', 'name'],
-    run: async (f, actor) => {
-      const input = { schoolId: req(f, 'school'), name: req(f, 'name') };
-      const { id, signupCode } = await createBranch(await actor(), input);
-      return { branchId: id, signupCode };
+    options: ['school', 'name'],
+    required: ['school', 'name'],
+    run: async (v, actor) => {
+      const r = await createBranch(actor, { schoolId: v.school!, name: v.name! });
+      return { branchId: r.id, signupCode: r.signupCode };
     },
   },
   'create-plan': {
-    flags: ['name', 'interval', 'price-minor', 'currency'],
-    run: async (f, actor) => {
-      const input = {
-        name: req(f, 'name'),
-        interval: req(f, 'interval') as 'monthly' | 'annual',
-        priceMinor: int(f, 'price-minor'),
-        currency: f.currency,
-      };
-      const { id } = await createPlan(await actor(), input);
-      return { planId: id };
+    options: ['name', 'interval', 'price-minor', 'currency'],
+    required: ['name', 'interval', 'price-minor'],
+    run: async (v, actor) => {
+      const r = await createPlan(actor, {
+        name: v.name!,
+        interval: v.interval as PlanInterval,
+        priceMinor: int(v['price-minor'], '--price-minor'),
+        currency: v.currency,
+      });
+      return { planId: r.id };
     },
   },
   'create-staff': {
-    flags: ['school', 'branch', 'role', 'username', 'password', 'name'],
-    run: async (f, actor) => {
-      const input = {
-        schoolId: req(f, 'school'),
-        branchId: f.branch ?? null,
-        role: req(f, 'role') as StaffRole,
-        username: req(f, 'username'),
-        password: password(f),
-        name: req(f, 'name'),
-      };
-      return createStaffUser(await actor(), input);
-    },
-  },
-  'create-section': {
-    flags: ['branch', 'grade', 'name'],
-    run: async (f, actor) => {
-      const input = { branchId: req(f, 'branch'), grade: int(f, 'grade'), name: req(f, 'name') };
-      const { id } = await createSection(await actor(), input);
-      return { sectionId: id };
-    },
-  },
-  'create-subject': {
-    flags: ['school', 'name'],
-    run: async (f, actor) => {
-      const input = { schoolId: req(f, 'school'), name: req(f, 'name') };
-      const { id } = await createSubject(await actor(), input);
-      return { subjectId: id };
-    },
-  },
-  'assign-teacher': {
-    flags: ['teacher', 'section', 'subject'],
-    run: async (f, actor) => {
-      const username = normalizeUsername(req(f, 'teacher'));
-      const input = { sectionId: req(f, 'section'), subjectId: req(f, 'subject') };
-      const a = await actor();
-      const [t] = await withPlatform((tx) => tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1));
-      if (!t) throw new DomainError('NOT_FOUND', 'Teacher not found');
-      await assignTeacher(a, { teacherId: t.id, ...input });
-      return { teacher: username, ...input };
-    },
-  },
-  'list-school': {
-    flags: ['school'],
-    run: async (f, actor) => {
-      const schoolId = req(f, 'school');
-      const a = await actor();
-      requirePlatform(a);
-      if (!isUuid(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
-      const [school, branchRows, sectionRows] = await withPlatform(async (tx) => {
-        const [s] = await tx.select({ id: schools.id, name: schools.name, board: schools.board }).from(schools).where(eq(schools.id, schoolId));
-        if (!s) throw new DomainError('NOT_FOUND', 'School not found');
-        return [
-          s,
-          await tx.select({ id: branches.id, name: branches.name }).from(branches).where(eq(branches.schoolId, schoolId)).orderBy(asc(branches.name), asc(branches.id)),
-          await tx.select({ id: sections.id, branchId: sections.branchId, grade: sections.grade, name: sections.name })
-            .from(sections).where(eq(sections.schoolId, schoolId)).orderBy(asc(sections.grade), asc(sections.name)),
-        ] as const;
+    options: ['school', 'branch', 'role', 'username', 'password', 'name'],
+    required: ['school', 'role', 'username', 'name'],
+    run: async (v, actor) => {
+      const r = await createStaffUser(actor, {
+        schoolId: v.school!,
+        branchId: v.branch ?? null,
+        role: v.role as StaffRole,
+        username: v.username!,
+        password: password(v),
+        name: v.name!,
       });
-      const [subjectRows, teachers] = await Promise.all([listSubjects(a, schoolId), listTeachers(a, schoolId)]);
-      return {
-        school,
-        branches: branchRows.map((b) => ({
-          ...b,
-          sections: sectionRows.filter((s) => s.branchId === b.id).map(({ id, grade, name }) => ({ id, grade, name })),
-        })),
-        subjects: subjectRows,
-        teachers,
-      };
+      return { userId: r.userId };
     },
   },
-  'reset-password': {
-    flags: ['username', 'password'],
-    run: async (f, actor) => {
-      const username = normalizeUsername(req(f, 'username'));
-      const pw = password(f);
-      const [u] = await withPlatform((tx) => tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1));
-      if (!u) throw new DomainError('NOT_FOUND', 'Student not found');
-      await resetStudentPassword(await actor(), u.id, pw);
-      return { userId: u.id, username };
+  'create-platform-admin': {
+    options: ['username', 'password', 'name'],
+    required: ['username', 'name'],
+    run: async (v) => {
+      const pw = password(v);
+      const username = validateCredentials(v.username!, pw);
+      const name = v.name!.trim();
+      if (name === '') throw new DomainError('VALIDATION', 'Name is required');
+      const passwordHash = await hashPassword(pw);
+      const userId = await withUsernameTakenHandling(username, () =>
+        withPlatform(async (tx) => {
+          await assertUsernameFree(tx, username);
+          const [u] = await tx.insert(users).values({ username, passwordHash, name, isPlatformAdmin: true }).returning({ id: users.id });
+          return u.id;
+        }),
+      );
+      return { userId, username };
     },
   },
   pending: {
-    flags: [],
-    run: async (_f, actor) => listPendingSubscriptions(await actor()),
+    options: [],
+    required: [],
+    run: (_v, actor) => listPendingSubscriptions(actor),
   },
   'record-payment': {
-    flags: ['subscription', 'amount-minor', 'currency', 'ref', 'paid-at'],
-    run: async (f, actor) => {
-      if (!f.as) throw new UsageError('--as <platform admin username> is required for record-payment');
-      const paidAt = f['paid-at'] ? new Date(f['paid-at']) : new Date();
-      if (Number.isNaN(paidAt.getTime())) throw new DomainError('VALIDATION', '--paid-at must be an ISO date');
-      const input = {
-        subscriptionId: req(f, 'subscription'),
-        amountMinor: int(f, 'amount-minor'),
-        currency: (f.currency ?? 'INR').toUpperCase(),
-        externalRef: f.ref,
+    options: ['subscription', 'amount-minor', 'currency', 'ref', 'paid-at'],
+    required: ['subscription', 'amount-minor'],
+    run: async (v, actor, as) => {
+      if (!as) throw new UsageError('record-payment requires --as <platform admin username> so the payment has a real recorder');
+      let paidAt = new Date();
+      if (v['paid-at'] !== undefined) {
+        paidAt = new Date(v['paid-at']);
+        if (Number.isNaN(paidAt.getTime())) throw new DomainError('VALIDATION', '--paid-at must be an ISO date');
+      }
+      const r = await recordPayment(actor, {
+        subscriptionId: v.subscription!,
+        amountMinor: int(v['amount-minor'], '--amount-minor'),
+        currency: (v.currency ?? 'INR').trim().toUpperCase(),
+        externalRef: v.ref,
         paidAt,
+      });
+      return { periodStart: r.periodStart.toISOString(), periodEnd: r.periodEnd.toISOString() };
+    },
+  },
+  'reset-password': {
+    options: ['username', 'password'],
+    required: ['username'],
+    run: async (v, actor) => {
+      const pw = password(v);
+      const u = await findUserByUsername(v.username!);
+      if (!u) throw new DomainError('NOT_FOUND', 'Student not found');
+      await resetStudentPassword(actor, u.id, pw);
+      return { userId: u.id, username: u.username };
+    },
+  },
+  'create-section': {
+    options: ['branch', 'grade', 'name'],
+    required: ['branch', 'grade', 'name'],
+    run: async (v, actor) => {
+      const r = await createSection(actor, { branchId: v.branch!, grade: int(v.grade, '--grade'), name: v.name! });
+      return { sectionId: r.id };
+    },
+  },
+  'create-subject': {
+    options: ['school', 'name'],
+    required: ['school', 'name'],
+    run: async (v, actor) => ({ subjectId: (await createSubject(actor, { schoolId: v.school!, name: v.name! })).id }),
+  },
+  'assign-teacher': {
+    options: ['teacher', 'section', 'subject'],
+    required: ['teacher', 'section', 'subject'],
+    run: async (v, actor) => {
+      const t = await findUserByUsername(v.teacher!);
+      if (!t) throw new DomainError('NOT_FOUND', 'Teacher not found');
+      await assignTeacher(actor, { teacherId: t.id, sectionId: v.section!, subjectId: v.subject! });
+      return { teacher: t.username, sectionId: v.section, subjectId: v.subject };
+    },
+  },
+  'list-school': {
+    options: ['school'],
+    required: ['school'],
+    run: async (v, actor) => {
+      requirePlatform(actor);
+      const schoolId = v.school!;
+      if (!isUuid(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
+      const { school, bs, ss } = await withPlatform(async (tx) => {
+        const [school] = await tx
+          .select({ id: schools.id, name: schools.name, board: schools.board, status: schools.status })
+          .from(schools)
+          .where(eq(schools.id, schoolId));
+        const bs = await tx
+          .select({ id: branches.id, name: branches.name, signupCode: branches.signupCode, signupCodeEnabled: branches.signupCodeEnabled })
+          .from(branches)
+          .where(eq(branches.schoolId, schoolId))
+          .orderBy(asc(branches.name), asc(branches.id));
+        const ss = await tx
+          .select({ id: sections.id, branchId: sections.branchId, grade: sections.grade, name: sections.name })
+          .from(sections)
+          .where(eq(sections.schoolId, schoolId))
+          .orderBy(asc(sections.grade), asc(sections.name), asc(sections.id));
+        return { school, bs, ss };
+      });
+      if (!school) throw new DomainError('NOT_FOUND', 'School not found');
+      return {
+        school,
+        branches: bs.map((b) => ({
+          ...b,
+          sections: ss.filter((s) => s.branchId === b.id).map(({ id, grade, name }) => ({ id, grade, name })),
+        })),
+        subjects: await listSubjects(actor, schoolId),
+        teachers: await listTeachers(actor, schoolId),
       };
-      return recordPayment(await actor(), input);
     },
   },
 };
 
-function usage(): string {
-  return `Usage: pnpm admin <command> [flags]\nCommands: ${Object.keys(commands).join(', ')}\nSee scripts/admin.ts for flags.`;
-}
-
-/** Runs one CLI command. Returns the process exit code (0 ok, 1 DomainError/failure, 2 usage). */
-export async function run(argv: string[], io: Io = defaultIo): Promise<number> {
+/** Runs one CLI invocation. Exit codes: 0 ok, 1 domain/unexpected error, 2 usage error. */
+export async function run(argv: string[], io: Io): Promise<number> {
   const [name, ...rest] = argv;
   const cmd = name ? commands[name] : undefined;
+  if (!cmd) {
+    io.err(`Unknown or missing command. Commands: ${Object.keys(commands).join(', ')}`);
+    return 2;
+  }
   try {
-    if (!cmd) throw new UsageError(name ? `Unknown command: ${name}` : 'No command given');
-    let values: Flags;
+    const options: Record<string, OptSpec> = { as: { type: 'string' } };
+    for (const o of cmd.options) options[o] = { type: 'string' };
+    let values: Record<string, string | undefined>;
     try {
-      const options = Object.fromEntries(
-        [...cmd.flags, 'as'].map((k) => [k, { type: 'string' as const }]),
-      );
-      ({ values } = parseArgs({ args: rest, options, strict: true, allowPositionals: false }) as { values: Flags });
+      values = parseArgs({ args: rest, options, strict: true, allowPositionals: false }).values as Record<string, string | undefined>;
     } catch (e) {
-      throw new UsageError((e as Error).message);
+      throw new UsageError(e instanceof Error ? e.message : 'Invalid arguments');
     }
-    const actor = () => (values.as ? actorFor(values.as) : Promise.resolve(SYNTHETIC_PLATFORM));
-    const result = await cmd.run(values, actor, io);
+    const missing = cmd.required.filter((r) => values[r] === undefined || values[r] === '');
+    if (missing.length > 0) throw new UsageError(`Missing required option(s): ${missing.map((m) => `--${m}`).join(', ')}`);
+
+    let actor = SYNTHETIC_ACTOR;
+    if (values.as !== undefined) {
+      const u = await findUserByUsername(values.as);
+      if (!u || !u.isPlatformAdmin) throw new DomainError('FORBIDDEN', '--as must name an existing platform admin');
+      actor = { ...SYNTHETIC_ACTOR, userId: u.id };
+    }
+    const result = await cmd.run(values, actor, values.as);
     io.out(JSON.stringify(result));
     return 0;
-  } catch (e) {
-    if (e instanceof UsageError) {
-      io.err(`Error: ${e.message}\n${usage()}`);
+  } catch (err) {
+    if (err instanceof UsageError) {
+      io.err(err.message);
       return 2;
     }
-    if (e instanceof DomainError) {
-      io.err(`Error [${e.code}]: ${e.message}${e.details ? ` ${JSON.stringify(e.details)}` : ''}`);
+    if (err instanceof DomainError) {
+      io.err(`${err.code}: ${err.message}${err.details ? ` ${JSON.stringify(err.details)}` : ''}`);
       return 1;
     }
-    // Unexpected errors: print a redacted summary only (Drizzle "Failed query" messages embed bound params).
-    const r = redactError(e);
-    const cause = r.cause as { code?: string; message?: string } | undefined;
-    io.err(`Error: ${r.name}: ${r.message ?? ''}${cause ? ` (${[cause.code, cause.message].filter(Boolean).join(': ')})` : ''}`);
+    io.err(`Unexpected error: ${JSON.stringify(redactError(err))}`);
     return 1;
   }
 }
 
-function isMain(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
-  } catch {
-    return false;
-  }
-}
-
-if (isMain()) {
-  const code = await run(process.argv.slice(2));
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const code = await run(process.argv.slice(2), { out: (s) => console.log(s), err: (s) => console.error(s) });
   await closeDb();
-  process.exit(code);
+  process.exitCode = code;
 }

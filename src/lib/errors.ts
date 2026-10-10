@@ -11,20 +11,19 @@ export type ErrorCode =
   | 'VALIDATION'
   | 'INVITE_INVALID'
   | 'STUDENT_REMOVED'
-  | 'BUDGET_EXCEEDED'
-  | 'TUTOR_BUSY'
-  | 'GENERATION_LIMIT'
+  | 'RATE_LIMITED'
   | 'ATTEMPT_EXPIRED'
-  | 'RATE_LIMITED';
+  | 'BUDGET_EXCEEDED'
+  | 'GENERATION_LIMIT'
+  | 'TUTOR_BUSY';
 
 export class DomainError extends Error {
-  code: ErrorCode;
-  details?: Record<string, unknown>;
-
-  constructor(code: ErrorCode, message?: string, details?: Record<string, unknown>) {
+  constructor(
+    readonly code: ErrorCode,
+    message?: string,
+    readonly details?: Record<string, unknown>,
+  ) {
     super(message ?? code);
     this.name = 'DomainError';
-    this.code = code;
-    this.details = details;
   }
 }

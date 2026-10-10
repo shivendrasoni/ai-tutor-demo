@@ -4,13 +4,13 @@ import { resetStudentPassword } from '@/modules/enrollment';
 
 export const dynamic = 'force-dynamic';
 
-// Shape check only; the service owns the strength rules.
+// resetStudentPassword owns the strength rules; the password is hashed and never returned.
 const Body = z.object({ password: z.string().max(128) });
 
 export const POST = handle(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const actor = await requireActor(req);
+  const body = await readJson(req, Body);
   const { id } = await ctx.params;
-  const { password } = await readJson(req, Body);
-  await resetStudentPassword(actor, id, password);
+  await resetStudentPassword(actor, id, body.password);
   return json({ ok: true });
 });

@@ -5,9 +5,9 @@ import { signupWithCode } from '@/modules/enrollment';
 
 export const dynamic = 'force-dynamic';
 
-// Shape check only; the service owns the detailed rules (grade range, credentials, section/branch).
+// Shape and size caps only; signupWithCode owns the field rules, credential rules and code checks.
 const Body = z.object({
-  code: z.string().max(32),
+  code: z.string().max(64),
   grade: z.number(),
   sectionId: z.string().max(64).optional(),
   studentName: z.string().max(200),
@@ -22,6 +22,5 @@ const Body = z.object({
 export const POST = handle(async (req: Request) => {
   await enforce(`join:submit:${clientIp(req)}`, limits.joinSubmitPerIp(), WINDOW_1_HOUR);
   const body = await readJson(req, Body);
-  const r = await signupWithCode(body);
-  return json({ studentUserId: r.studentUserId, subscriptionId: r.subscriptionId }, { status: 201 });
+  return json(await signupWithCode(body), { status: 201 });
 });

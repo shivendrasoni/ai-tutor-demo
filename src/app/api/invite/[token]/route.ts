@@ -8,6 +8,8 @@ export const dynamic = 'force-dynamic';
 
 type Ctx = { params: Promise<{ token: string }> };
 
+const Body = z.object({ planId: z.string().max(64), username: z.string().max(200), password: z.string().max(128) });
+
 export const GET = handle(async (_req: Request, ctx: Ctx) => {
   const { token } = await ctx.params;
   const invite = await getInvite(token);
@@ -15,16 +17,9 @@ export const GET = handle(async (_req: Request, ctx: Ctx) => {
   return json(invite);
 });
 
-const Body = z.object({
-  planId: z.string().max(64),
-  username: z.string().max(200),
-  password: z.string().max(128),
-});
-
 export const POST = handle(async (req: Request, ctx: Ctx) => {
   await enforce(`join:submit:${clientIp(req)}`, limits.joinSubmitPerIp(), WINDOW_1_HOUR);
   const { token } = await ctx.params;
   const body = await readJson(req, Body);
-  const r = await completeInvite({ token, ...body });
-  return json({ studentUserId: r.studentUserId, subscriptionId: r.subscriptionId });
+  return json(await completeInvite({ token, ...body }));
 });

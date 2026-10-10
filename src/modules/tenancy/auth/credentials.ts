@@ -1,44 +1,39 @@
 import { eq } from 'drizzle-orm';
 import { withPlatform, type Tx } from '@/db/client';
-import { isUniqueViolation } from '@/db/pgerror';
 import { users } from '@/db/schema';
+import { isUniqueViolation } from '@/db/pgerror';
 import { DomainError } from '@/lib/errors';
 import { assertPasswordStrength } from './passwords';
 import { assertValidUsername, normalizeUsername, suggestUsernames } from './usernames';
 
-export const USERNAME_INDEX = 'users_username_unique';
-
-/** Normalizes and validates a username and checks password strength. Returns the normalized username. */
-export function validateCredentials(username: string, password: string): string {
-  const name = normalizeUsername(typeof username === 'string' ? username : '');
-  assertValidUsername(name);
+/** Normalizes the username, validates it and the password; returns the normalized username. */
+export function validateCredentials(rawUsername: string, password: string): string {
+  const username = normalizeUsername(rawUsername);
+  assertValidUsername(username);
   assertPasswordStrength(password);
-  return name;
+  return username;
 }
 
 export async function isUsernameTaken(tx: Tx, username: string): Promise<boolean> {
-  const rows = await tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
-  return rows.length > 0;
+  const [row] = await tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+  return !!row;
 }
 
-/** Marker thrown inside a transaction when the pre-check finds the name taken. */
-class UsernameTakenSignal extends Error {}
-
-/** Throws (inside a tx) if the username exists; pair with `withUsernameTakenHandling` outside the tx. */
 export async function assertUsernameFree(tx: Tx, username: string): Promise<void> {
-  if (await isUsernameTaken(tx, username)) throw new UsernameTakenSignal(username);
+  if (await isUsernameTaken(tx, username)) {
+    throw new DomainError('USERNAME_TAKEN', 'Username is already taken', {
+      suggestions: await suggestUsernames(tx, username, 3),
+    });
+  }
 }
 
-/**
- * Runs `fn` (which should open its own transaction) and converts a username conflict, from the
- * pre-check or from a concurrent insert hitting the unique index (23505), into USERNAME_TAKEN.
- * Suggestions are computed in a fresh transaction because the failed one is aborted.
- */
+/** Runs `fn`; a unique violation on the username index (a concurrent signup race) becomes USERNAME_TAKEN. */
 export async function withUsernameTakenHandling<T>(username: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof UsernameTakenSignal || isUniqueViolation(err, USERNAME_INDEX)) {
+    if (isUniqueViolation(err, 'users_username_unique')) {
+      // The failed transaction is gone; look the suggestions up in a fresh one.
       const suggestions = await withPlatform((tx) => suggestUsernames(tx, username, 3));
       throw new DomainError('USERNAME_TAKEN', 'Username is already taken', { suggestions });
     }

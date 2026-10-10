@@ -1,8 +1,8 @@
-import { and, asc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { withPlatform, withTenant, type Tx } from '@/db/client';
-import { isUniqueViolation } from '@/db/pgerror';
 import { branches, memberships, schools, sections, subjects, teacherAssignments, users } from '@/db/schema';
+import { isUniqueViolation } from '@/db/pgerror';
 import { DomainError } from '@/lib/errors';
 import { isUuid } from '@/lib/uuid';
 import type { Actor, Role } from './actor';
@@ -11,236 +11,114 @@ import { hashPassword } from './auth/passwords';
 import { assert, canManageBranch, canManageSchool, requirePlatform, runAs } from './authz';
 import { generateBranchCode, normalizeBranchCode } from './codes';
 
-const CODE_RETRIES = 5;
+export type StaffRole = Exclude<Role, 'student'>;
+export type BranchByCode = { schoolId: string; branchId: string; schoolName: string; branchName: string; enabled: boolean };
+export type TeacherListing = { userId: string; name: string; username: string; branchId: string; branchName: string };
 
-function requireText(value: unknown, field: string, max = 200): string {
-  const v = typeof value === 'string' ? value.trim() : '';
-  if (!v || v.length > max) throw new DomainError('VALIDATION', `${field} is required (max ${max} chars)`, { field });
+const STAFF_ROLES: readonly string[] = ['school_admin', 'branch_admin', 'teacher'];
+const CODE_ATTEMPTS = 5;
+const MAX_NAME = 200;
+
+const isSchoolStaff = (a: Actor) => a.isPlatformAdmin || a.roles.includes('school_admin') || a.roles.includes('branch_admin');
+const notFound = (what: string) => new DomainError('NOT_FOUND', `${what} not found`);
+
+/** Trims a required name; empty or over-long is VALIDATION. */
+function cleanName(raw: unknown, what: string): string {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  if (v === '' || v.length > MAX_NAME) throw new DomainError('VALIDATION', `${what} must be 1-${MAX_NAME} characters`);
   return v;
 }
 
-/** Retries `fn` when it trips the branches.signup_code unique constraint (each attempt is its own tx). */
-async function retryOnCodeCollision<T>(fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (attempt < CODE_RETRIES && isUniqueViolation(err, 'branches_signup_code_unique')) continue;
-      throw err;
-    }
+export function assertGrade(grade: number): void {
+  if (!Number.isInteger(grade) || grade < 5 || grade > 12) {
+    throw new DomainError('VALIDATION', 'Grade must be a whole number from 5 to 12');
   }
 }
 
-/** Loads a branch visible to the actor (RLS hides other schools) and checks canManageBranch. */
-async function loadManagedBranch(tx: Tx, actor: Actor, branchId: string) {
-  if (!isUuid(branchId)) throw new DomainError('NOT_FOUND', 'Branch not found');
-  const [row] = await tx.select().from(branches).where(eq(branches.id, branchId)).limit(1);
-  if (!row) throw new DomainError('NOT_FOUND', 'Branch not found');
-  assert(canManageBranch(actor, row.schoolId, row.id));
-  return row;
+/** The school must exist (visible to the caller's scope); platform admins may name any school. */
+async function assertSchoolExists(tx: Tx, schoolId: string): Promise<void> {
+  if (!isUuid(schoolId)) throw notFound('School');
+  const [s] = await tx.select({ id: schools.id }).from(schools).where(eq(schools.id, schoolId)).limit(1);
+  if (!s) throw notFound('School');
 }
 
 export async function createSchool(actor: Actor, input: { name: string; board: string }): Promise<{ id: string }> {
   requirePlatform(actor);
-  const name = requireText(input.name, 'name');
-  const board = requireText(input.board, 'board', 50);
+  const name = cleanName(input.name, 'School name');
+  const board = cleanName(input.board, 'Board');
   const [row] = await withPlatform((tx) => tx.insert(schools).values({ name, board }).returning({ id: schools.id }));
-  return row;
+  return { id: row.id };
 }
 
 export async function createBranch(
   actor: Actor,
   input: { schoolId: string; name: string },
 ): Promise<{ id: string; signupCode: string }> {
-  if (!isUuid(input.schoolId)) throw new DomainError('FORBIDDEN');
   assert(canManageSchool(actor, input.schoolId));
-  const name = requireText(input.name, 'name');
-  return retryOnCodeCollision(() =>
-    runAs(actor, async (tx) => {
-      const [school] = await tx.select({ id: schools.id }).from(schools).where(eq(schools.id, input.schoolId));
-      if (!school) throw new DomainError('NOT_FOUND', 'School not found');
-      const [row] = await tx
-        .insert(branches)
-        .values({ schoolId: input.schoolId, name, signupCode: generateBranchCode() })
-        .returning({ id: branches.id, signupCode: branches.signupCode });
-      return row;
-    }),
-  );
+  const name = cleanName(input.name, 'Branch name');
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+    const signupCode = generateBranchCode();
+    try {
+      const id = await runAs(actor, async (tx) => {
+        await assertSchoolExists(tx, input.schoolId);
+        const [row] = await tx
+          .insert(branches)
+          .values({ schoolId: input.schoolId, name, signupCode })
+          .returning({ id: branches.id });
+        return row.id;
+      });
+      return { id, signupCode };
+    } catch (err) {
+      if (!isUniqueViolation(err, 'branches_signup_code_unique')) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
+/** Loads a branch through the actor's scope (RLS hides other schools' branches) and checks they can manage it. */
+async function loadManagedBranch(tx: Tx, actor: Actor, branchId: string) {
+  if (!isUuid(branchId)) throw notFound('Branch');
+  const [b] = await tx.select().from(branches).where(eq(branches.id, branchId)).limit(1);
+  if (!b) throw notFound('Branch');
+  assert(canManageBranch(actor, b.schoolId, b.id));
+  return b;
+}
+
+/** Replaces the branch code with a fresh one (the old code stops working); returns the new code. */
 export async function rotateBranchCode(actor: Actor, branchId: string): Promise<string> {
-  return retryOnCodeCollision(() =>
-    runAs(actor, async (tx) => {
-      await loadManagedBranch(tx, actor, branchId);
-      const signupCode = generateBranchCode();
-      await tx.update(branches).set({ signupCode }).where(eq(branches.id, branchId));
+  assert(isSchoolStaff(actor));
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+    const signupCode = generateBranchCode();
+    try {
+      await runAs(actor, async (tx) => {
+        const b = await loadManagedBranch(tx, actor, branchId);
+        await tx.update(branches).set({ signupCode }).where(eq(branches.id, b.id));
+      });
       return signupCode;
-    }),
-  );
+    } catch (err) {
+      if (!isUniqueViolation(err, 'branches_signup_code_unique')) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 export async function setBranchCodeEnabled(actor: Actor, branchId: string, enabled: boolean): Promise<void> {
-  if (typeof enabled !== 'boolean') throw new DomainError('VALIDATION', 'enabled must be boolean');
+  assert(isSchoolStaff(actor));
   await runAs(actor, async (tx) => {
-    await loadManagedBranch(tx, actor, branchId);
-    await tx.update(branches).set({ signupCodeEnabled: enabled }).where(eq(branches.id, branchId));
+    const b = await loadManagedBranch(tx, actor, branchId);
+    await tx.update(branches).set({ signupCodeEnabled: enabled }).where(eq(branches.id, b.id));
   });
 }
 
-export function assertGrade(grade: unknown): asserts grade is number {
-  if (typeof grade !== 'number' || !Number.isInteger(grade) || grade < 5 || grade > 12) {
-    throw new DomainError('VALIDATION', 'Grade must be an integer from 5 to 12', { field: 'grade' });
-  }
-}
-
-export async function createSection(
-  actor: Actor,
-  input: { branchId: string; grade: number; name: string },
-): Promise<{ id: string }> {
-  assertGrade(input.grade);
-  const name = requireText(input.name, 'name', 50);
-  try {
-    return await runAs(actor, async (tx) => {
-      const branch = await loadManagedBranch(tx, actor, input.branchId);
-      const [row] = await tx
-        .insert(sections)
-        .values({ schoolId: branch.schoolId, branchId: branch.id, grade: input.grade, name })
-        .returning({ id: sections.id });
-      return row;
-    });
-  } catch (err) {
-    if (isUniqueViolation(err, 'sections_branch_grade_name_unique')) {
-      throw new DomainError('VALIDATION', 'A section with this name already exists for that grade', { field: 'name' });
-    }
-    throw err;
-  }
-}
-
-export async function createSubject(actor: Actor, input: { schoolId: string; name: string }): Promise<{ id: string }> {
-  if (!isUuid(input.schoolId)) throw new DomainError('FORBIDDEN');
-  assert(canManageSchool(actor, input.schoolId));
-  const name = requireText(input.name, 'name', 100);
-  try {
-    return await runAs(actor, async (tx) => {
-      const [row] = await tx.insert(subjects).values({ schoolId: input.schoolId, name }).returning({ id: subjects.id });
-      return row;
-    });
-  } catch (err) {
-    if (isUniqueViolation(err, 'subjects_school_name_unique')) {
-      throw new DomainError('VALIDATION', 'Subject already exists', { field: 'name' });
-    }
-    throw err;
-  }
-}
-
-export type StaffRole = Exclude<Role, 'student'>;
-const STAFF_ROLES: readonly StaffRole[] = ['school_admin', 'branch_admin', 'teacher'];
-
-export async function createStaffUser(
-  actor: Actor,
-  input: {
-    schoolId: string;
-    branchId: string | null;
-    role: StaffRole;
-    username: string;
-    password: string;
-    name: string;
-    email?: string;
-  },
-): Promise<{ userId: string }> {
-  const { schoolId, branchId, role } = input;
-  if (!STAFF_ROLES.includes(role)) throw new DomainError('VALIDATION', 'Invalid staff role', { field: 'role' });
-  if (role === 'school_admin' && branchId !== null) {
-    throw new DomainError('VALIDATION', 'A school admin must not have a branch', { field: 'branchId' });
-  }
-  if (role !== 'school_admin' && !isUuid(branchId)) {
-    throw new DomainError('VALIDATION', 'This role requires a branch', { field: 'branchId' });
-  }
-  if (!isUuid(schoolId)) throw new DomainError('FORBIDDEN');
-  const allowed =
-    canManageSchool(actor, schoolId) ||
-    (role === 'teacher' && branchId !== null && canManageBranch(actor, schoolId, branchId));
-  assert(allowed);
-
-  const name = requireText(input.name, 'name');
-  let email: string | null = null;
-  if (input.email !== undefined && input.email !== null && input.email.trim() !== '') {
-    const parsed = z.email().safeParse(input.email.trim());
-    if (!parsed.success) throw new DomainError('VALIDATION', 'Invalid email', { field: 'email' });
-    email = parsed.data;
-  }
-  const username = validateCredentials(input.username, input.password);
-  const passwordHash = await hashPassword(input.password);
-
-  return withUsernameTakenHandling(username, () =>
-    withTenant(schoolId, async (tx) => {
-      if (branchId !== null) {
-        // RLS scopes this to schoolId, so another school's branch is simply not found.
-        const [b] = await tx.select({ id: branches.id }).from(branches).where(eq(branches.id, branchId));
-        if (!b) throw new DomainError('NOT_FOUND', 'Branch not found');
-      } else {
-        const [s] = await tx.select({ id: schools.id }).from(schools).where(eq(schools.id, schoolId));
-        if (!s) throw new DomainError('NOT_FOUND', 'School not found');
-      }
-      await assertUsernameFree(tx, username);
-      const [u] = await tx.insert(users).values({ username, passwordHash, name, email }).returning({ id: users.id });
-      await tx.insert(memberships).values({ userId: u.id, schoolId, branchId, role });
-      return { userId: u.id };
-    }),
-  );
-}
-
-export async function assignTeacher(
-  actor: Actor,
-  input: { teacherId: string; sectionId: string; subjectId: string },
-): Promise<void> {
-  const { teacherId, sectionId, subjectId } = input;
-  await runAs(actor, async (tx) => {
-    if (!isUuid(sectionId)) throw new DomainError('NOT_FOUND', 'Section not found');
-    const [section] = await tx.select().from(sections).where(eq(sections.id, sectionId)).limit(1);
-    if (!section) throw new DomainError('NOT_FOUND', 'Section not found');
-    assert(canManageBranch(actor, section.schoolId, section.branchId));
-
-    if (!isUuid(subjectId)) throw new DomainError('NOT_FOUND', 'Subject not found');
-    if (!isUuid(teacherId)) throw new DomainError('NOT_FOUND', 'Teacher not found');
-    const [subject] = await tx
-      .select({ id: subjects.id })
-      .from(subjects)
-      .where(and(eq(subjects.id, subjectId), eq(subjects.schoolId, section.schoolId)));
-    if (!subject) throw new DomainError('NOT_FOUND', 'Subject not found');
-    const [teacher] = await tx
-      .select({ id: memberships.id })
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.userId, teacherId),
-          eq(memberships.schoolId, section.schoolId),
-          eq(memberships.branchId, section.branchId),
-          eq(memberships.role, 'teacher'),
-        ),
-      );
-    if (!teacher) throw new DomainError('NOT_FOUND', 'Teacher not found');
-
-    await tx
-      .insert(teacherAssignments)
-      .values({ schoolId: section.schoolId, teacherId, sectionId, subjectId })
-      .onConflictDoNothing();
-  });
-}
-
-export type BranchByCode = {
-  schoolId: string;
-  branchId: string;
-  schoolName: string;
-  branchName: string;
-  enabled: boolean;
-};
-
-/** System lookup (bypasses RLS): resolves a signup code to its branch. Code is trimmed and upper-cased. */
+/** System lookup for the public join flow: no actor, so it reads on the platform connection. */
 export async function findBranchByCode(code: string): Promise<BranchByCode | null> {
-  const normalized = normalizeBranchCode(typeof code === 'string' ? code : '');
-  if (!normalized) return null;
-  const rows = await withPlatform((tx) =>
+  const normalized = normalizeBranchCode(code);
+  if (normalized === '') return null;
+  const [row] = await withPlatform((tx) =>
     tx
       .select({
         schoolId: branches.schoolId,
@@ -254,9 +132,158 @@ export async function findBranchByCode(code: string): Promise<BranchByCode | nul
       .where(eq(branches.signupCode, normalized))
       .limit(1),
   );
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
+export async function createSection(
+  actor: Actor,
+  input: { branchId: string; grade: number; name: string },
+): Promise<{ id: string }> {
+  assert(isSchoolStaff(actor));
+  assertGrade(input.grade);
+  const name = cleanName(input.name, 'Section name');
+  try {
+    return await runAs(actor, async (tx) => {
+      const b = await loadManagedBranch(tx, actor, input.branchId);
+      const [row] = await tx
+        .insert(sections)
+        .values({ schoolId: b.schoolId, branchId: b.id, grade: input.grade, name })
+        .returning({ id: sections.id });
+      return { id: row.id };
+    });
+  } catch (err) {
+    if (isUniqueViolation(err, 'sections_branch_grade_name_unique')) {
+      throw new DomainError('VALIDATION', 'A section with this grade and name already exists in the branch');
+    }
+    throw err;
+  }
+}
+
+export async function createSubject(actor: Actor, input: { schoolId: string; name: string }): Promise<{ id: string }> {
+  assert(canManageSchool(actor, input.schoolId));
+  const name = cleanName(input.name, 'Subject name');
+  try {
+    return await runAs(actor, async (tx) => {
+      await assertSchoolExists(tx, input.schoolId);
+      const [row] = await tx.insert(subjects).values({ schoolId: input.schoolId, name }).returning({ id: subjects.id });
+      return { id: row.id };
+    });
+  } catch (err) {
+    if (isUniqueViolation(err, 'subjects_school_name_unique')) {
+      throw new DomainError('VALIDATION', 'A subject with this name already exists');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Creates a staff user and its membership. Authorization: a platform admin, or a school_admin of the school;
+ * a branch_admin may create a teacher in their own branch only. The password is hashed and never returned.
+ */
+export async function createStaffUser(
+  actor: Actor,
+  input: {
+    schoolId: string;
+    branchId: string | null;
+    role: StaffRole;
+    username: string;
+    password: string;
+    name: string;
+    email?: string;
+  },
+): Promise<{ userId: string }> {
+  if (!STAFF_ROLES.includes(input.role)) throw new DomainError('VALIDATION', 'Role must be school_admin, branch_admin or teacher');
+  if (input.role === 'school_admin' ? input.branchId !== null : input.branchId === null) {
+    throw new DomainError(
+      'VALIDATION',
+      input.role === 'school_admin' ? 'A school admin has no branch' : 'This role needs a branch',
+    );
+  }
+  const allowed =
+    canManageSchool(actor, input.schoolId) ||
+    (input.role === 'teacher' && input.branchId !== null && canManageBranch(actor, input.schoolId, input.branchId));
+  assert(allowed);
+  const username = validateCredentials(input.username, input.password);
+  const name = cleanName(input.name, 'Name');
+  const emailRaw = input.email?.trim() || undefined;
+  if (emailRaw !== undefined && !z.email().max(254).safeParse(emailRaw).success) {
+    throw new DomainError('VALIDATION', 'Invalid email');
+  }
+  const email = emailRaw ?? null;
+  if (!isUuid(input.schoolId)) throw notFound('School');
+  const passwordHash = await hashPassword(input.password);
+
+  // Runs under the school's RLS context (defence in depth): app_user may insert into the global users table,
+  // and the membership insert is checked by the tenant policy, so one atomic transaction is enough.
+  const userId = await withUsernameTakenHandling(username, () =>
+    withTenant(input.schoolId, async (tx) => {
+      await assertSchoolExists(tx, input.schoolId);
+      if (input.branchId !== null) {
+        const [b] = isUuid(input.branchId)
+          ? await tx
+              .select({ id: branches.id })
+              .from(branches)
+              .where(and(eq(branches.id, input.branchId), eq(branches.schoolId, input.schoolId)))
+              .limit(1)
+          : [];
+        if (!b) throw notFound('Branch');
+      }
+      await assertUsernameFree(tx, username);
+      const [u] = await tx.insert(users).values({ username, passwordHash, name, email }).returning({ id: users.id });
+      await tx
+        .insert(memberships)
+        .values({ userId: u.id, schoolId: input.schoolId, branchId: input.branchId, role: input.role });
+      return u.id;
+    }),
+  );
+  return { userId };
+}
+
+/** Idempotent. The teacher must belong to the section's branch; the subject to the section's school. */
+export async function assignTeacher(
+  actor: Actor,
+  input: { teacherId: string; sectionId: string; subjectId: string },
+): Promise<void> {
+  assert(isSchoolStaff(actor));
+  if (!isUuid(input.sectionId)) throw notFound('Section');
+  if (!isUuid(input.teacherId)) throw notFound('Teacher');
+  if (!isUuid(input.subjectId)) throw notFound('Subject');
+  await runAs(actor, async (tx) => {
+    const [section] = await tx.select().from(sections).where(eq(sections.id, input.sectionId)).limit(1);
+    if (!section) throw notFound('Section');
+    assert(canManageBranch(actor, section.schoolId, section.branchId));
+    const [teacher] = await tx
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.userId, input.teacherId),
+          eq(memberships.schoolId, section.schoolId),
+          eq(memberships.branchId, section.branchId),
+          eq(memberships.role, 'teacher'),
+        ),
+      )
+      .limit(1);
+    if (!teacher) throw notFound('Teacher');
+    const [subject] = await tx
+      .select({ id: subjects.id })
+      .from(subjects)
+      .where(and(eq(subjects.id, input.subjectId), eq(subjects.schoolId, section.schoolId)))
+      .limit(1);
+    if (!subject) throw notFound('Subject');
+    await tx
+      .insert(teacherAssignments)
+      .values({
+        schoolId: section.schoolId,
+        teacherId: input.teacherId,
+        sectionId: section.id,
+        subjectId: input.subjectId,
+      })
+      .onConflictDoNothing();
+  });
+}
+
+/** Public join flow: the sections of one branch, read under the school's tenant context. */
 export async function listSectionsForBranch(
   schoolId: string,
   branchId: string,
@@ -267,59 +294,61 @@ export async function listSectionsForBranch(
       .select({ id: sections.id, grade: sections.grade, name: sections.name })
       .from(sections)
       .where(eq(sections.branchId, branchId))
-      .orderBy(asc(sections.grade), asc(sections.name)),
+      .orderBy(asc(sections.grade), asc(sections.name), asc(sections.id)),
   );
 }
-
-/** Subjects of the actor's school. Staff only; a platform admin sees every school's subjects, or one school's with `schoolId`. */
-export async function listSubjects(actor: Actor, schoolId?: string): Promise<{ id: string; name: string }[]> {
-  const isStaff = actor.schoolId !== null && actor.roles.some((r) => r !== 'student');
-  if (!actor.isPlatformAdmin && !isStaff) throw new DomainError('FORBIDDEN');
-  const only = actor.isPlatformAdmin && schoolId !== undefined;
-  if (only && !isUuid(schoolId)) return [];
-  return runAs(actor, (tx) =>
-    tx
-      .select({ id: subjects.id, name: subjects.name })
-      .from(subjects)
-      .where(only ? eq(subjects.schoolId, schoolId!) : undefined)
-      .orderBy(asc(subjects.name)),
-  );
-}
-
-export type TeacherListing = { userId: string; name: string; username: string | null; branchId: string; branchName: string };
 
 /**
- * Teacher accounts the actor administers, ordered by name: a school_admin sees the whole school, a branch_admin
- * only their branch. A platform admin must name the school (`schoolId`); other roles are FORBIDDEN. Never returns
- * credentials.
+ * Subjects visible to the actor: their own school for staff and teachers (RLS), every school for a platform
+ * admin unless `schoolId` narrows it. Students are FORBIDDEN.
+ */
+export async function listSubjects(actor: Actor, schoolId?: string): Promise<{ id: string; name: string }[]> {
+  assert(actor.isPlatformAdmin || actor.roles.some((r) => r !== 'student'));
+  if (schoolId !== undefined && !isUuid(schoolId)) throw notFound('School');
+  return runAs(actor, (tx) => {
+    const q = tx.select({ id: subjects.id, name: subjects.name }).from(subjects);
+    const filtered = actor.isPlatformAdmin && schoolId ? q.where(eq(subjects.schoolId, schoolId)) : q;
+    return filtered.orderBy(asc(subjects.name), asc(subjects.id));
+  });
+}
+
+/**
+ * Teachers of a school without credentials. school_admin: whole school; branch_admin: own branch only;
+ * a platform admin must name the school. Everyone else is FORBIDDEN.
  */
 export async function listTeachers(actor: Actor, schoolId?: string): Promise<TeacherListing[]> {
-  const isSchoolAdmin = actor.roles.includes('school_admin');
-  const isBranchAdmin = actor.roles.includes('branch_admin');
-  if (!actor.isPlatformAdmin && !isSchoolAdmin && !isBranchAdmin) throw new DomainError('FORBIDDEN');
-  const filters: SQL[] = [eq(memberships.role, 'teacher')];
+  assert(isSchoolStaff(actor));
+  let scope: string;
   if (actor.isPlatformAdmin) {
-    if (!isUuid(schoolId)) throw new DomainError('VALIDATION', 'A school is required', { field: 'schoolId' });
-    filters.push(eq(memberships.schoolId, schoolId));
+    if (!schoolId) throw new DomainError('VALIDATION', 'schoolId is required');
+    if (!isUuid(schoolId)) throw notFound('School');
+    scope = schoolId;
   } else {
-    if (!actor.schoolId) throw new DomainError('FORBIDDEN');
-    filters.push(eq(memberships.schoolId, actor.schoolId));
-    if (!isSchoolAdmin) {
-      if (!actor.branchId) throw new DomainError('FORBIDDEN');
-      filters.push(eq(memberships.branchId, actor.branchId));
-    }
+    assert(actor.schoolId !== null);
+    scope = actor.schoolId;
+    // fail closed: a branch_admin without a branch must never fall back to the whole school
+    if (!actor.roles.includes('school_admin')) assert(actor.branchId !== null);
   }
-  const rows = await runAs(actor, (tx) =>
+  const ownBranchOnly = !actor.isPlatformAdmin && !actor.roles.includes('school_admin');
+  return runAs(actor, (tx) =>
     tx
       .select({
-        userId: users.id, name: users.name, username: users.username,
-        branchId: memberships.branchId, branchName: branches.name,
+        userId: users.id,
+        name: users.name,
+        username: users.username,
+        branchId: branches.id,
+        branchName: branches.name,
       })
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .innerJoin(branches, eq(branches.id, memberships.branchId))
-      .where(and(...filters))
-      .orderBy(asc(users.name), asc(users.id)),
+      .where(
+        and(
+          eq(memberships.schoolId, scope),
+          eq(memberships.role, 'teacher'),
+          ownBranchOnly && actor.branchId ? eq(memberships.branchId, actor.branchId) : undefined,
+        ),
+      )
+      .orderBy(asc(branches.name), asc(users.name), asc(users.id)) as Promise<TeacherListing[]>,
   );
-  return rows.map((r) => ({ ...r, branchId: r.branchId! }));
 }

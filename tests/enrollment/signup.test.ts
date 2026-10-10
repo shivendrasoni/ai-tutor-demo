@@ -102,6 +102,7 @@ describe('signupWithCode', () => {
       return p.id;
     });
     await expect(signupWithCode({ ...valid, planId: inactive })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(signupWithCode({ ...valid, code: '   ' })).rejects.toMatchObject({ code: 'VALIDATION' });
     await expect(signupWithCode({ ...valid, parentPhone: '  ' })).rejects.toMatchObject({ code: 'VALIDATION' });
     await expect(signupWithCode({ ...valid, parentName: '' })).rejects.toMatchObject({ code: 'VALIDATION' });
     await expect(signupWithCode({ ...valid, parentEmail: 'not-an-email' })).rejects.toMatchObject({ code: 'VALIDATION' });

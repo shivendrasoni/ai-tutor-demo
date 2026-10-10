@@ -5,12 +5,13 @@ import { branches, schools, sections } from './tenancy';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+const schoolId = () => uuid('school_id').notNull().references(() => schools.id);
 
 export const studentProfiles = pgTable(
   'student_profiles',
   {
     userId: uuid('user_id').primaryKey().references(() => users.id),
-    schoolId: uuid('school_id').notNull().references(() => schools.id),
+    schoolId: schoolId(),
     branchId: uuid('branch_id').notNull().references(() => branches.id),
     grade: integer('grade').notNull(),
     sectionId: uuid('section_id').references(() => sections.id),
@@ -44,7 +45,7 @@ export const subscriptions = pgTable(
   'subscriptions',
   {
     id: id(),
-    schoolId: uuid('school_id').notNull().references(() => schools.id),
+    schoolId: schoolId(),
     studentId: uuid('student_id').notNull().unique().references(() => users.id),
     planId: uuid('plan_id').notNull().references(() => plans.id),
     status: text('status').notNull().default('pending'),
@@ -59,7 +60,7 @@ export const payments = pgTable(
   'payments',
   {
     id: id(),
-    schoolId: uuid('school_id').notNull().references(() => schools.id),
+    schoolId: schoolId(),
     subscriptionId: uuid('subscription_id').notNull().references(() => subscriptions.id),
     amountMinor: integer('amount_minor').notNull(),
     currency: text('currency').notNull().default('INR'),
@@ -71,7 +72,8 @@ export const payments = pgTable(
   },
   (t) => [
     check('payments_method_check', sql`${t.method} in ('manual_link','gateway')`),
-    // Idempotency: one payment per (subscription, external reference).
+    // Idempotency: one payment per (subscription, external reference). Partial so only payments that carry a
+    // reference take part in the uniqueness check: payments without one (manual entries) must never collide.
     uniqueIndex('payments_subscription_external_ref_unique')
       .on(t.subscriptionId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
@@ -80,7 +82,7 @@ export const payments = pgTable(
 
 export const invites = pgTable('invites', {
   id: id(),
-  schoolId: uuid('school_id').notNull().references(() => schools.id),
+  schoolId: schoolId(),
   studentUserId: uuid('student_user_id').notNull().references(() => users.id),
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

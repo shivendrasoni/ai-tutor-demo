@@ -1,115 +1,64 @@
 'use client';
 
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { apiFetch, genericMessage } from '../_lib/api';
+import { PasswordField, TextField, UsernameField } from '../_lib/fields';
+import PlanPicker, { SUCCESS_COPY, type PlanOption } from '../_lib/PlanPicker';
+import { codeCopy, submitError } from '../_lib/submit-error';
 import styles from '../public.module.css';
-import {
-  apiFetch, credentialError, GENERIC_ERROR, NETWORK_ERROR, SIGNUP_SUCCESS, suggestionsOf, type ApiError,
-} from '../_lib/api';
-import { ErrorRegion, PasswordField, PlanPicker, TextField, UsernameField, usePlans } from '../_lib/fields';
 
 type Section = { id: string; grade: number; name: string };
-type Branch = { code: string; schoolName: string; branchName: string; sections: Section[] };
+type Branch = { schoolName: string; branchName: string; sections: Section[] };
 
 const GRADES = [5, 6, 7, 8, 9, 10, 11, 12];
-const INVALID_CODE = "That code wasn't recognised. Check it and try again.";
-const CODE_DISABLED = 'Signups for this branch are currently closed. Please contact your school.';
-
-function codeError(e: ApiError): string {
-  if (e.code === 'INVALID_CODE') return INVALID_CODE;
-  if (e.code === 'CODE_DISABLED') return CODE_DISABLED;
-  if (e.code === 'NETWORK') return NETWORK_ERROR;
-  return GENERIC_ERROR;
-}
 
 export default function JoinFlow() {
-  const [branch, setBranch] = useState<Branch | null>(null);
-  const [done, setDone] = useState(false);
-
-  if (done) {
-    return (
-      <>
-        <h1 className={styles.title}>You&apos;re all set</h1>
-        <p className={styles.success} role="status">{SIGNUP_SUCCESS}</p>
-      </>
-    );
-  }
-  if (!branch) return <CodeStep onFound={setBranch} />;
-  return <DetailsStep branch={branch} onBack={() => setBranch(null)} onDone={() => setDone(true)} />;
-}
-
-function CodeStep({ onFound }: { onFound: (b: Branch) => void }) {
-  const id = useId();
+  const [step, setStep] = useState<'code' | 'form' | 'done'>('code');
   const [code, setCode] = useState('');
-  const [error, setError] = useState('');
+  const [branch, setBranch] = useState<Branch | null>(null);
+  const [plans, setPlans] = useState<PlanOption[]>([]);
   const [busy, setBusy] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    const c = code.trim();
-    if (!c) {
-      setError(INVALID_CODE);
-      return;
-    }
-    setBusy(true);
-    setError('');
-    const r = await apiFetch<Omit<Branch, 'code'>>(`/api/join/code/${encodeURIComponent(c)}`);
-    setBusy(false);
-    if (r.ok) onFound({ code: c, ...r.data });
-    else setError(codeError(r.error));
-  }
-
-  return (
-    <>
-      <h1 className={styles.title}>Join your school</h1>
-      <p className={styles.lead}>Enter the signup code your school gave you.</p>
-      <form className={styles.form} onSubmit={submit} noValidate>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={id}>Signup code</label>
-          <input
-            id={id}
-            className={styles.input}
-            name="code"
-            type="text"
-            autoComplete="off"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            maxLength={32}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </div>
-        <ErrorRegion message={error} />
-        <button className={styles.button} type="submit" disabled={busy}>
-          {busy ? 'Checking…' : 'Continue'}
-        </button>
-      </form>
-    </>
-  );
-}
-
-function DetailsStep({ branch, onBack, onDone }: { branch: Branch; onBack: () => void; onDone: () => void }) {
-  const gradeId = useId();
-  const sectionId = useId();
-  const { plans, error: plansError } = usePlans();
+  const [error, setError] = useState('');
 
   const [grade, setGrade] = useState('');
-  const [section, setSection] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [studentName, setStudentName] = useState('');
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [parentEmail, setParentEmail] = useState('');
   const [planId, setPlanId] = useState('');
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState('');
 
   const gradeSections = useMemo(
-    () => branch.sections.filter((s) => String(s.grade) === grade),
-    [branch.sections, grade],
+    () => (branch && grade ? branch.sections.filter((s) => s.grade === Number(grade)) : []),
+    [branch, grade],
   );
+
+  async function lookup(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    const trimmed = code.trim();
+    const [b, p] = await Promise.all([
+      apiFetch<Branch>(`/api/join/code/${encodeURIComponent(trimmed)}`),
+      apiFetch<{ plans: PlanOption[] }>('/api/plans'),
+    ]);
+    setBusy(false);
+    if (!b.ok) {
+      setError(codeCopy(b.error.code) ?? genericMessage(b.error));
+      return;
+    }
+    if (!p.ok) {
+      setError(genericMessage(p.error));
+      return;
+    }
+    setBranch(b.data);
+    setPlans(p.data.plans);
+    setStep('form');
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -118,94 +67,89 @@ function DetailsStep({ branch, onBack, onDone }: { branch: Branch; onBack: () =>
     const r = await apiFetch('/api/join', {
       method: 'POST',
       body: {
-        code: branch.code,
+        code: code.trim(),
         grade: Number(grade),
-        ...(section ? { sectionId: section } : {}),
-        studentName: studentName.trim(),
-        parentName: parentName.trim(),
-        parentPhone: parentPhone.trim(),
+        ...(sectionId ? { sectionId } : {}),
+        studentName,
+        parentName,
+        parentPhone,
         ...(parentEmail.trim() ? { parentEmail: parentEmail.trim() } : {}),
         planId,
-        username: username.trim(),
+        username,
         password,
       },
     });
     setBusy(false);
     if (r.ok) {
-      setPassword('');
-      onDone();
+      setStep('done');
       return;
     }
-    if (r.error.code === 'INVALID_CODE' || r.error.code === 'CODE_DISABLED') setError(codeError(r.error));
-    else setError(credentialError(r.error));
-    if (r.error.code === 'USERNAME_TAKEN') setSuggestions(suggestionsOf(r.error));
+    const f = submitError(r.error);
+    setError(f.message);
+    if (f.suggestions.length > 0) setSuggestions(f.suggestions);
+  }
+
+  if (step === 'done') {
+    return (
+      <>
+        <h1 className={styles.title}>Join your school</h1>
+        <p role="status" className={styles.success}>{SUCCESS_COPY}</p>
+        <Link href="/login" className={styles.link}>Go to log in</Link>
+      </>
+    );
+  }
+
+  if (step === 'code' || !branch) {
+    return (
+      <>
+        <h1 className={styles.title}>Join your school</h1>
+        <p className={styles.sub}>Enter the signup code your school gave you.</p>
+        <form className={styles.form} onSubmit={lookup}>
+          {error ? <p role="alert" className={styles.error}>{error}</p> : null}
+          <TextField label="Signup code" value={code} onChange={setCode} autoComplete="off" required maxLength={64} />
+          <button type="submit" className={styles.button} disabled={busy}>{busy ? 'Checking…' : 'Continue'}</button>
+        </form>
+        <p><Link href="/login" className={styles.link}>Already have an account? Log in</Link></p>
+      </>
+    );
   }
 
   return (
     <>
-      <h1 className={styles.title}>Create your account</h1>
-      <p className={styles.lead}>
-        Joining {branch.schoolName} — {branch.branchName}
-      </p>
-      <button type="button" className={styles.linkButton} onClick={onBack}>Use a different code</button>
+      <h1 className={styles.title}>Join your school</h1>
+      <p className={styles.sub}>{`Joining ${branch.schoolName} — ${branch.branchName}`}</p>
       <form className={styles.form} onSubmit={submit}>
+        {error ? <p role="alert" className={styles.error}>{error}</p> : null}
         <div className={styles.field}>
-          <label className={styles.label} htmlFor={gradeId}>Grade</label>
+          <label htmlFor="join-grade" className={styles.label}>Grade</label>
           <select
-            id={gradeId}
-            className={styles.select}
-            name="grade"
-            required
+            id="join-grade"
             value={grade}
+            required
             onChange={(e) => {
               setGrade(e.target.value);
-              setSection('');
+              setSectionId('');
             }}
           >
-            <option value="" disabled>Select a grade</option>
-            {GRADES.map((g) => (
-              <option key={g} value={g}>Grade {g}</option>
-            ))}
+            <option value="">Select grade</option>
+            {GRADES.map((g) => <option key={g} value={String(g)}>{g}</option>)}
           </select>
         </div>
-
         <div className={styles.field}>
-          <label className={styles.label} htmlFor={sectionId}>Section (optional)</label>
-          <select
-            id={sectionId}
-            className={styles.select}
-            name="section"
-            value={section}
-            disabled={!grade || gradeSections.length === 0}
-            onChange={(e) => setSection(e.target.value)}
-          >
-            <option value="">{grade && gradeSections.length === 0 ? 'No sections for this grade' : 'Not sure / skip'}</option>
-            {gradeSections.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+          <label htmlFor="join-section" className={styles.label}>Section (optional)</label>
+          <select id="join-section" value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={gradeSections.length === 0}>
+            <option value="">Not sure / none</option>
+            {gradeSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
-
-        <TextField label="Student name" value={studentName} onChange={setStudentName} name="studentName" autoComplete="off" maxLength={200} />
-        <TextField label="Parent name" value={parentName} onChange={setParentName} name="parentName" autoComplete="name" maxLength={200} />
-        <TextField
-          label="Parent phone" value={parentPhone} onChange={setParentPhone} name="parentPhone"
-          type="tel" inputMode="tel" autoComplete="tel" maxLength={32}
-        />
-        <TextField
-          label="Parent email (optional)" value={parentEmail} onChange={setParentEmail} name="parentEmail" required={false}
-          type="email" inputMode="email" autoComplete="email" maxLength={254}
-        />
-
-        <PlanPicker plans={plans} error={plansError} value={planId} onChange={setPlanId} />
-
+        <TextField label="Student name" value={studentName} onChange={setStudentName} autoComplete="off" required maxLength={200} />
+        <TextField label="Parent name" value={parentName} onChange={setParentName} autoComplete="off" required maxLength={200} />
+        <TextField label="Parent phone" type="tel" value={parentPhone} onChange={setParentPhone} autoComplete="tel" required maxLength={32} />
+        <TextField label="Parent email (optional)" type="email" value={parentEmail} onChange={setParentEmail} autoComplete="email" maxLength={254} />
+        <PlanPicker plans={plans} value={planId} onChange={setPlanId} />
         <UsernameField value={username} onChange={setUsername} suggestions={suggestions} onSuggestions={setSuggestions} />
-        <PasswordField value={password} onChange={setPassword} autoComplete="new-password" />
-
-        <ErrorRegion message={error} />
-        <button className={styles.button} type="submit" disabled={busy}>
-          {busy ? 'Creating account…' : 'Create account'}
-        </button>
+        <PasswordField value={password} onChange={setPassword} />
+        <button type="submit" className={styles.button} disabled={busy || planId === ''}>{busy ? 'Creating…' : 'Create account'}</button>
       </form>
     </>
   );

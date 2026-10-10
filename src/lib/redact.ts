@@ -1,12 +1,13 @@
-/** Redaction for logging unexpected errors (route handlers, CLI): never prints SQL params or raw messages. */
+export type RedactedError = { name: string; message?: string; code?: string; stack?: string; cause?: RedactedError };
 
-const MAX_LOG_MESSAGE = 200;
+const MAX_MESSAGE = 200;
 
-/** Drops anything from a "params:" marker on, then truncates. */
-function safeMessage(message: unknown): string | undefined {
-  if (typeof message !== 'string') return undefined;
-  const cut = message.split(/params:/i)[0].trimEnd();
-  return cut.length > MAX_LOG_MESSAGE ? `${cut.slice(0, MAX_LOG_MESSAGE)}…` : cut;
+function safeMessage(raw: string): string {
+  let m = raw.split('\n')[0];
+  // Driver/ORM messages embed the SQL and its parameters; keep only the fact that a query failed.
+  if (/^Failed query/i.test(m)) return 'Failed query';
+  m = m.replace(/\s*\bparams?:.*$/i, '').replace(/\$argon2\S*/g, '[redacted]');
+  return m.slice(0, MAX_MESSAGE);
 }
 
 /** Stack frames only: the stack's header repeats the (unredacted) message, so it is dropped. */
@@ -18,22 +19,15 @@ function safeStack(err: Error): string | undefined {
 }
 
 /**
- * Builds a loggable summary of an unexpected error: name, a truncated message without params, and stack frames.
- * Drizzle "Failed query" errors embed SQL + bound params in the message, so for those only the
- * driver cause's code/message are kept.
+ * A log-safe summary of an unknown error: name, first message line (SQL, params and password hashes
+ * stripped), driver code, stack frames (top level only, no header) and the same for `cause`. Never includes `params` or query text.
  */
-export function redactError(err: unknown): Record<string, unknown> {
+export function redactError(err: unknown, depth = 0): RedactedError {
   if (!(err instanceof Error)) return { name: typeof err };
-  const cause = (err as { cause?: unknown }).cause as { code?: unknown; message?: unknown } | undefined;
-  if (err.message.startsWith('Failed query')) {
-    return {
-      name: err.name,
-      message: 'Failed query',
-      cause: cause && typeof cause === 'object'
-        ? { code: typeof cause.code === 'string' ? cause.code : undefined, message: safeMessage(cause.message) }
-        : undefined,
-      stack: safeStack(err),
-    };
-  }
-  return { name: err.name, message: safeMessage(err.message), stack: safeStack(err) };
+  const out: RedactedError = { name: err.name, message: safeMessage(err.message) };
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string' || typeof code === 'number') out.code = String(code);
+  if (depth === 0) out.stack = safeStack(err);
+  if (err.cause !== undefined && depth < 3) out.cause = redactError(err.cause, depth + 1);
+  return out;
 }

@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, integer, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { branches, schools, sections, subjects } from './tenancy';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -60,7 +71,11 @@ export const sessions = pgTable('sessions', {
   createdAt: createdAt(),
 });
 
-/** Fixed-window rate-limit counters. Global (no school_id): keyed by e.g. `login:ip:1.2.3.4`. */
+/**
+ * Fixed-window rate-limit counters. GLOBAL on purpose: no `school_id`, so not a tenant table (not in `tenantTables`,
+ * no RLS), because the keys are about the caller (e.g. `login:ip:1.2.3.4`), not a school. Written only through
+ * `withPlatform` (see src/lib/rate-limit.ts).
+ */
 export const rateLimits = pgTable(
   'rate_limits',
   {

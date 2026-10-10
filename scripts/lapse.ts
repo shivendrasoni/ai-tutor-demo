@@ -1,41 +1,35 @@
-/** Daily cron job: lapses subscriptions whose period ended; purges rate-limit windows older than a day and sessions expired over 7 days ago. Usage: pnpm job:lapse */
 import './env';
-import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { closeDb } from '@/db/client';
+import { redactError } from '@/lib/redact';
 import { purgeRateLimits } from '@/lib/rate-limit';
 import { lapseExpired } from '@/modules/enrollment';
 import { purgeExpiredSessions } from '@/modules/tenancy';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY = 86_400_000;
 
-/** One maintenance pass. Exported for tests. */
-export async function runLapse(now: Date = new Date()) {
+export type LapseResult = { lapsed: number; purgedRateLimits: number; purgedSessions: number };
+
+/** Daily backstop: lapses expired subscriptions and purges stale rate-limit windows and long-expired sessions. */
+export async function runLapse(now: Date = new Date()): Promise<LapseResult> {
   const lapsed = await lapseExpired(now);
-  const purgedRateLimits = await purgeRateLimits(new Date(now.getTime() - DAY_MS));
-  const purgedSessions = await purgeExpiredSessions(new Date(now.getTime() - 7 * DAY_MS));
+  const purgedRateLimits = await purgeRateLimits(new Date(now.getTime() - DAY));
+  const purgedSessions = await purgeExpiredSessions(new Date(now.getTime() - 7 * DAY));
   return { lapsed, purgedRateLimits, purgedSessions };
 }
 
-function isMain(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
+async function main(): Promise<number> {
   try {
-    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
-  } catch {
-    return false;
-  }
-}
-
-if (isMain()) {
-  let code = 0;
-  try {
-    console.log(JSON.stringify(await runLapse()));
-  } catch (e) {
-    console.error(`Error: ${(e as Error)?.message ?? String(e)}`);
-    code = 1;
+    console.log(JSON.stringify(await runLapse(new Date())));
+    return 0;
+  } catch (err) {
+    console.error('lapse failed:', redactError(err));
+    return 1;
   } finally {
     await closeDb();
   }
-  process.exit(code);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = await main();
 }

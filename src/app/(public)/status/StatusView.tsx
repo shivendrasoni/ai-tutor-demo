@@ -2,55 +2,41 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import styles from '../public.module.css';
+import LogoutButton from '@/app/ui/LogoutButton';
 import { apiFetch } from '../_lib/api';
-import { ErrorRegion } from '../_lib/fields';
-import { resolveStatus, type Me, type Resolved, type StatusData } from './resolve';
-
-type View = { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'text'; text: string };
+import { resolveStatus, type Me, type StatusInfo } from './resolve';
+import styles from '../public.module.css';
 
 export default function StatusView() {
   const router = useRouter();
-  const [view, setView] = useState<View>({ kind: 'loading' });
-  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const apply = (r: Resolved) => {
-        if (r.kind === 'redirect') router.replace(r.to); // keep showing "Loading…" while navigating
-        else if (r.kind !== 'need-status') setView(r);
-      };
       const me = await apiFetch<Me>('/api/me');
+      let outcome = resolveStatus(me);
+      if (outcome.kind === 'need-status') {
+        outcome = resolveStatus(me, await apiFetch<StatusInfo>('/api/me/status'));
+      }
       if (!live) return;
-      const first = resolveStatus(me);
-      if (first.kind !== 'need-status') return apply(first);
-      const st = await apiFetch<StatusData>('/api/me/status');
-      if (!live) return;
-      apply(resolveStatus(me, st));
+      if (outcome.kind === 'redirect') router.replace(outcome.to);
+      else if (outcome.kind === 'text') setText(outcome.text);
+      else if (outcome.kind === 'error') setError(outcome.message);
     })();
     return () => {
       live = false;
     };
   }, [router]);
 
-  async function logout() {
-    setBusy(true);
-    await apiFetch('/api/auth/logout', { method: 'POST' });
-    router.replace('/login');
-  }
-
   return (
     <>
       <h1 className={styles.title}>Your account</h1>
-      {view.kind === 'loading' && <p className={styles.hint} role="status">Loading…</p>}
-      {view.kind === 'text' && <p className={styles.notice} role="status">{view.text}</p>}
-      <ErrorRegion message={view.kind === 'error' ? view.message : ''} />
-      {view.kind !== 'loading' && (
-        <button type="button" className={styles.secondary} onClick={logout} disabled={busy}>
-          {busy ? 'Logging out…' : 'Log out'}
-        </button>
-      )}
+      {error ? <p role="alert" className={styles.error}>{error}</p> : null}
+      {text ? <p className={styles.notice}>{text}</p> : null}
+      {!text && !error ? <p className={styles.sub}>Loading…</p> : null}
+      <LogoutButton />
     </>
   );
 }

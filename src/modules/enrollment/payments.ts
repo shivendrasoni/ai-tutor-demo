@@ -1,98 +1,12 @@
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { withPlatform } from '@/db/client';
-import {
-  branches, payments, plans, schools, studentProfiles, subscriptions, users,
-} from '@/db/schema';
 import { isUniqueViolation } from '@/db/pgerror';
 import { DomainError } from '@/lib/errors';
+import { isUuid } from '@/lib/uuid';
 import type { Actor } from '@/modules/tenancy/actor';
 import { requirePlatform } from '@/modules/tenancy/authz';
 import { addInterval, type PlanInterval } from './periods';
-
-const PaymentSchema = z.object({
-  amountMinor: z.number().int().positive().max(2147483647), // int4 column
-  currency: z.string().regex(/^[A-Z]{3}$/),
-  externalRef: z.string().trim().min(1).max(200).optional(),
-  paidAt: z.date().refine((d) => !Number.isNaN(d.getTime())),
-});
-
-const PAID_AT_FUTURE_SKEW_MS = 5 * 60 * 1000;
-const PAID_AT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
-
-const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
-const notFound = () => new DomainError('NOT_FOUND', 'Subscription not found');
-
-export async function recordPayment(
-  actor: Actor,
-  input: { subscriptionId: string; amountMinor: number; currency: string; externalRef?: string; paidAt: Date },
-  now: Date = new Date(),
-): Promise<{ periodStart: Date; periodEnd: Date }> {
-  requirePlatform(actor);
-  if (!isUuid(input.subscriptionId)) throw notFound();
-  const parsed = PaymentSchema.safeParse(input);
-  if (!parsed.success) {
-    throw new DomainError('VALIDATION', 'Invalid payment details', {
-      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-    });
-  }
-  const { amountMinor, currency, externalRef, paidAt } = parsed.data;
-  // Bounds live here (not only in the HTTP route) so the CLI cannot bypass them.
-  if (paidAt.getTime() > now.getTime() + PAID_AT_FUTURE_SKEW_MS) {
-    throw new DomainError('VALIDATION', 'paidAt cannot be in the future', { field: 'paidAt' });
-  }
-  if (paidAt.getTime() < now.getTime() - PAID_AT_MAX_AGE_MS) {
-    throw new DomainError('VALIDATION', 'paidAt cannot be more than a year ago', { field: 'paidAt' });
-  }
-
-  return withPlatform(async (tx) => {
-    // Row lock serializes concurrent payments on the same subscription.
-    const locked = await tx.execute(
-      sql`select id from subscriptions where id = ${input.subscriptionId} for update`,
-    );
-    if (locked.rows.length === 0) throw notFound();
-
-    const [sub] = await tx.select().from(subscriptions).where(eq(subscriptions.id, input.subscriptionId));
-    const [profile] = await tx.select().from(studentProfiles).where(eq(studentProfiles.userId, sub.studentId));
-    const [plan] = await tx.select().from(plans).where(eq(plans.id, sub.planId));
-
-    if (profile.status === 'removed') throw new DomainError('STUDENT_REMOVED', 'Student has been removed');
-    // A cancelled subscription only arises from removal, so reaching here is inconsistent state.
-    if (sub.status === 'cancelled') throw new DomainError('VALIDATION', 'Subscription is cancelled');
-
-    const interval = plan.interval as PlanInterval;
-    // Active subscriptions extend from the current end. If the end is already in the past relative
-    // to paidAt (the lapse job hasn't run yet), treat it as lapsed and restart from paidAt.
-    const extending =
-      sub.status === 'active' && sub.currentPeriodStart && sub.currentPeriodEnd && sub.currentPeriodEnd >= paidAt;
-    const periodStart = extending ? sub.currentPeriodStart! : paidAt;
-    const periodEnd = addInterval(extending ? sub.currentPeriodEnd! : paidAt, interval);
-
-    try {
-      await tx.insert(payments).values({
-        schoolId: sub.schoolId,
-        subscriptionId: sub.id,
-        amountMinor,
-        currency,
-        method: 'manual_link',
-        externalRef: externalRef ?? null,
-        paidAt,
-        recordedBy: actor.userId,
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, 'payments_subscription_external_ref_unique')) {
-        throw new DomainError('VALIDATION', 'This payment reference was already recorded', { reason: 'duplicate_payment' });
-      }
-      throw err;
-    }
-    await tx
-      .update(subscriptions)
-      .set({ status: 'active', currentPeriodStart: periodStart, currentPeriodEnd: periodEnd })
-      .where(eq(subscriptions.id, sub.id));
-    await tx.update(studentProfiles).set({ status: 'active' }).where(eq(studentProfiles.userId, sub.studentId));
-    return { periodStart, periodEnd };
-  });
-}
 
 export type PendingRow = {
   subscriptionId: string;
@@ -110,32 +24,104 @@ export type PendingRow = {
   createdAt: Date;
 };
 
+const INT4_MAX = 2147483647;
+const PaymentSchema = z.object({
+  amountMinor: z.number().int().positive().max(INT4_MAX),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  externalRef: z.string().trim().min(1).max(200).optional(),
+  paidAt: z.date().refine((d) => !Number.isNaN(d.getTime())),
+});
+
+export async function recordPayment(
+  actor: Actor,
+  input: { subscriptionId: string; amountMinor: number; currency: string; externalRef?: string; paidAt: Date },
+  now: Date = new Date(),
+): Promise<{ periodStart: Date; periodEnd: Date }> {
+  requirePlatform(actor);
+  if (!isUuid(input.subscriptionId)) throw new DomainError('NOT_FOUND', 'Subscription not found');
+  // Accept "inr" / " INR ": normalize before the strict ISO-4217-shape check.
+  const normalized = { ...input, currency: typeof input.currency === 'string' ? input.currency.trim().toUpperCase() : input.currency };
+  const parsed = PaymentSchema.safeParse(normalized);
+  if (!parsed.success) {
+    throw new DomainError('VALIDATION', 'Invalid payment', {
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  const { amountMinor, currency, externalRef, paidAt } = parsed.data;
+  if (paidAt.getTime() > now.getTime() + 5 * 60_000) {
+    throw new DomainError('VALIDATION', 'paidAt cannot be in the future', { field: 'paidAt' });
+  }
+  if (paidAt.getTime() < now.getTime() - 365 * 86_400_000) {
+    throw new DomainError('VALIDATION', 'paidAt cannot be more than a year ago', { field: 'paidAt' });
+  }
+
+  try {
+    return await withPlatform(async (tx) => {
+      // Lock the subscription first (same order as removeStudent) so concurrent payments serialize.
+      const locked = await tx.execute(sql`
+        select s.id, s.school_id, s.student_id, s.status, s.current_period_start, s.current_period_end, p.interval
+        from subscriptions s join plans p on p.id = s.plan_id
+        where s.id = ${input.subscriptionId} for update of s`);
+      const sub = locked.rows[0] as
+        | {
+            school_id: string; student_id: string; status: string;
+            current_period_start: Date | string | null; current_period_end: Date | string | null; interval: string;
+          }
+        | undefined;
+      if (!sub) throw new DomainError('NOT_FOUND', 'Subscription not found');
+
+      const prof = await tx.execute(sql`select status from student_profiles where user_id = ${sub.student_id} for update`);
+      if (prof.rows[0]?.status === 'removed') throw new DomainError('STUDENT_REMOVED', 'Student has been removed');
+      if (sub.status === 'cancelled') throw new DomainError('VALIDATION', 'Subscription is cancelled');
+
+      await tx.execute(sql`
+        insert into payments (school_id, subscription_id, amount_minor, currency, method, external_ref, paid_at, recorded_by)
+        values (${sub.school_id}, ${input.subscriptionId}, ${amountMinor}, ${currency}, 'manual_link',
+                ${externalRef ?? null}, ${paidAt.toISOString()}::timestamptz, ${actor.userId})`);
+
+      const interval = sub.interval as PlanInterval;
+      const end = sub.current_period_end ? new Date(sub.current_period_end) : null;
+      let periodStart: Date;
+      let periodEnd: Date;
+      if (sub.status === 'active' && end && end.getTime() >= paidAt.getTime() && sub.current_period_start) {
+        periodStart = new Date(sub.current_period_start);
+        periodEnd = addInterval(end, interval);
+      } else {
+        periodStart = paidAt;
+        periodEnd = addInterval(paidAt, interval);
+      }
+      await tx.execute(sql`
+        update subscriptions set status = 'active',
+          current_period_start = ${periodStart.toISOString()}::timestamptz,
+          current_period_end = ${periodEnd.toISOString()}::timestamptz
+        where id = ${input.subscriptionId}`);
+      await tx.execute(sql`update student_profiles set status = 'active' where user_id = ${sub.student_id}`);
+      return { periodStart, periodEnd };
+    });
+  } catch (e) {
+    if (isUniqueViolation(e, 'payments_subscription_external_ref_unique')) {
+      throw new DomainError('VALIDATION', 'This payment reference was already recorded', { reason: 'duplicate_payment' });
+    }
+    throw e;
+  }
+}
+
 export async function listPendingSubscriptions(actor: Actor): Promise<PendingRow[]> {
   requirePlatform(actor);
-  return withPlatform((tx) =>
-    tx
-      .select({
-        subscriptionId: subscriptions.id,
-        status: subscriptions.status,
-        studentName: users.name,
-        username: users.username,
-        schoolName: schools.name,
-        branchName: branches.name,
-        grade: studentProfiles.grade,
-        parentName: studentProfiles.parentName,
-        parentPhone: studentProfiles.parentPhone,
-        planName: plans.name,
-        priceMinor: plans.priceMinor,
-        currency: plans.currency,
-        createdAt: subscriptions.createdAt,
-      })
-      .from(subscriptions)
-      .innerJoin(users, eq(users.id, subscriptions.studentId))
-      .innerJoin(studentProfiles, eq(studentProfiles.userId, subscriptions.studentId))
-      .innerJoin(schools, eq(schools.id, subscriptions.schoolId))
-      .innerJoin(branches, eq(branches.id, studentProfiles.branchId))
-      .innerJoin(plans, eq(plans.id, subscriptions.planId))
-      .where(and(inArray(subscriptions.status, ['pending', 'lapsed']), ne(studentProfiles.status, 'removed')))
-      .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id)),
+  const res = await withPlatform((tx) =>
+    tx.execute(sql`
+      select s.id as "subscriptionId", s.status, u.name as "studentName", u.username,
+             sc.name as "schoolName", b.name as "branchName", sp.grade,
+             sp.parent_name as "parentName", sp.parent_phone as "parentPhone",
+             p.name as "planName", p.price_minor as "priceMinor", p.currency, s.created_at as "createdAt"
+      from subscriptions s
+      join student_profiles sp on sp.user_id = s.student_id
+      join users u on u.id = s.student_id
+      join schools sc on sc.id = s.school_id
+      join branches b on b.id = sp.branch_id
+      join plans p on p.id = s.plan_id
+      where s.status in ('pending','lapsed') and sp.status <> 'removed'
+      order by s.created_at, s.id`),
   );
+  return res.rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt as string | Date) })) as PendingRow[];
 }

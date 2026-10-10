@@ -60,6 +60,11 @@ describe('listStudents', () => {
     expect(await codeOf(listStudents(seed.a.branchAdmin, { branchId: seed.b.branchId }))).toBe('FORBIDDEN');
   });
 
+  it('school_admin with a branchId outside their school is FORBIDDEN', async () => {
+    expect(await codeOf(listStudents(seed.a.schoolAdmin, { branchId: seed.b.branchId }))).toBe('FORBIDDEN');
+    expect(await codeOf(listStudents(seed.a.schoolAdmin, { branchId: '00000000-0000-4000-8000-000000000000' }))).toBe('FORBIDDEN');
+  });
+
   it('teacher and student are FORBIDDEN', async () => {
     expect(await codeOf(listStudents(seed.a.teacher, {}))).toBe('FORBIDDEN');
     expect(await codeOf(listStudents(seed.a.student, {}))).toBe('FORBIDDEN');
@@ -67,7 +72,7 @@ describe('listStudents', () => {
 
   it('school_admin cannot reach another school', async () => {
     expect(await codeOf(listStudents(seed.a.schoolAdmin, { schoolId: seed.b.schoolId }))).toBe('FORBIDDEN');
-    expect(await listStudents(seed.a.schoolAdmin, { branchId: seed.b.branchId })).toEqual([]);
+    expect(await codeOf(listStudents(seed.a.schoolAdmin, { branchId: seed.b.branchId }))).toBe('FORBIDDEN');
     const own = await listStudents(seed.a.schoolAdmin, { schoolId: seed.a.schoolId });
     expect(own.map((x) => x.userId)).toEqual([seed.a.studentId]);
   });

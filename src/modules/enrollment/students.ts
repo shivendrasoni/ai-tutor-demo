@@ -57,6 +57,11 @@ export async function listStudents(
       if (!actor.branchId) throw new DomainError('FORBIDDEN');
       if (branchId && branchId !== actor.branchId) throw new DomainError('FORBIDDEN');
       branchId = actor.branchId;
+    } else if (branchId) {
+      const own = await runAs(actor, (tx) =>
+        tx.select({ id: branches.id }).from(branches).where(and(eq(branches.id, branchId as string), eq(branches.schoolId, schoolId))),
+      );
+      if (own.length === 0) throw new DomainError('FORBIDDEN');
     }
   }
 

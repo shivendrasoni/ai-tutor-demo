@@ -23,6 +23,11 @@ import * as enrollmentRoute from '@/app/api/school/enrollment/route';
 import * as studentsRoute from '@/app/api/school/students/route';
 import * as progressRoute from '@/app/api/teacher/progress/route';
 import * as usageRoute from '@/app/api/teacher/usage/route';
+import * as costsRoute from '@/app/api/platform/costs/route';
+import * as routingRoute from '@/app/api/platform/routing/route';
+import * as flagsRoute from '@/app/api/platform/flags/route';
+import * as schoolsRoute from '@/app/api/platform/schools/route';
+import * as reviewRoute from '@/app/api/platform/flags/[messageId]/review/route';
 
 let w: World;
 let bIds: string[]; // every identifier / secret that belongs to School B
@@ -93,12 +98,12 @@ const SAFE = ['FORBIDDEN', 'NOT_FOUND'];
 
 /** Rejects with FORBIDDEN/NOT_FOUND, or resolves with no B data. */
 async function expectSafe(call: () => Promise<unknown>) {
-  try {
-    const v = await call();
-    expect(leaks(v)).toEqual([]);
-  } catch (e) {
-    expect(SAFE).toContain((e as { code?: string }).code);
-  }
+  const out = await call().then(
+    (value) => ({ value }),
+    (e: { code?: string }) => ({ code: e.code }),
+  );
+  if ('code' in out) expect(SAFE).toContain(out.code);
+  else expect(leaks(out.value)).toEqual([]);
 }
 const expectDenied = async (call: () => Promise<unknown>, codes = SAFE) => {
   const code = await codeOf(call());
@@ -145,7 +150,10 @@ describe('school-scoped analytics, A actors with B ids', () => {
 
   it('studentUsage without filters and with A filters never returns a B student id', async () => {
     for (const k of ['schoolAdmin', 'branchAdmin', 'teacher'] as const) {
-      const rows = await studentUsage(w.a[k], {}).catch(() => []);
+      const rows = await studentUsage(w.a[k], {}).catch((e: { code?: string }) => {
+        if (e.code !== 'FORBIDDEN') throw e;
+        return [];
+      });
       expect(leaks(rows)).toEqual([]);
     }
     const adminRows = await studentUsage(w.a.schoolAdmin, {});
@@ -224,16 +232,37 @@ describe('dashboard API routes with B ids', () => {
     for (const k of ['schoolAdmin', 'branchAdmin'] as const) {
       const c = await sid(w.a[k].userId);
       await clean(await enrollmentRoute.GET(get(`/x?schoolId=${w.b.schoolId}`, c)));
-      await clean(await enrollmentRoute.GET(get(`/x?branchId=${w.b.branchId}`, c)));
+      expect((await enrollmentRoute.GET(get(`/x?branchId=${w.b.branchId}`, c))).status).toBe(403);
       await clean(await studentsRoute.GET(get(`/x?schoolId=${w.b.schoolId}`, c)));
-      // A school_admin's own school plus a B branch id filters to nothing: a 200 with no rows is also safe.
-      const res = await studentsRoute.GET(get(`/x?branchId=${w.b.branchId}`, c));
-      if (res.status === 200) expect((await res.json()).students).toEqual([]);
-      else await clean(res);
+      expect((await studentsRoute.GET(get(`/x?branchId=${w.b.branchId}`, c))).status).toBe(403);
     }
     const own = await enrollmentRoute.GET(get('/x', await sid(w.a.schoolAdmin.userId)));
     expect(own.status).toBe(200);
     expect(leaks(await own.text())).toEqual([]);
+  });
+
+  it('branch_admin cannot widen to another branch of the same school', async () => {
+    // enrollmentSummary has no branch argument: it must scope a branch_admin to their own branch, never widen.
+    await expectDenied(() => enrollmentSummary(w.a.branchAdmin, { schoolId: w.a.schoolId }), ['FORBIDDEN']);
+    const rows = await enrollmentSummary(w.a.branchAdmin, {});
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.branchId === w.a.branchId)).toBe(true);
+    const c = await sid(w.a.branchAdmin.userId);
+    expect((await enrollmentRoute.GET(get(`/x?branchId=${w.aBranch2Id}`, c))).status).toBe(403);
+    expect((await studentsRoute.GET(get(`/x?branchId=${w.aBranch2Id}`, c))).status).toBe(403);
+  });
+
+  it('platform routes are 403 for A staff and B’s flag stays open', async () => {
+    const post = (path: string, cookie: string) => new Request(`http://localhost${path}`, { method: 'POST', headers: { cookie } });
+    for (const k of ['schoolAdmin', 'branchAdmin', 'teacher'] as const) {
+      const c = await sid(w.a[k].userId);
+      for (const [h, url] of [
+        [costsRoute.GET, '/x?days=30'], [routingRoute.GET, '/x?days=30'], [flagsRoute.GET, '/x'], [schoolsRoute.GET, '/x'],
+      ] as const) expect((await h(get(url, c))).status).toBe(403);
+      const res = await reviewRoute.POST(post('/x', c), { params: Promise.resolve({ messageId: flagged() }) });
+      expect(res.status).toBe(403);
+    }
+    expect(await bFlagReviewedAt()).toBeNull();
   });
 
   it('teacher/progress and teacher/usage with B ids are rejected for A staff', async () => {

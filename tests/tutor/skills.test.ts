@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { withPlatform } from '@/db/client';
 import { skills } from '@/db/schema';
-import { getSkillByKey, listSkills, SEED_SKILLS, seedSkills } from '@/modules/tutor/skills';
+import { getSkillByKey, listSkills, SEED_SKILLS, seedSkills, type SeedSkill } from '@/modules/tutor/skills';
 
 beforeAll(async () => {
   await seedSkills();
@@ -42,5 +42,19 @@ describe('skills', () => {
     expect((await listSkills()).map((s) => s.key)).not.toContain('explain');
     expect((await getSkillByKey('explain'))?.key).toBe('explain');
     expect(await getSkillByKey('nope')).toBeNull();
+  });
+
+  it('re-seed updates outputSchema/providerOptions, keeps operator models; extra skills are upserted', async () => {
+    await withPlatform((tx) => tx.update(skills).set({ models: { standard: 'openai/x' } }).where(eq(skills.key, 'explain')));
+    const extra: SeedSkill = {
+      key: 'quiz-gen', name: 'Quiz', kind: 'generator', instructions: 'i', models: {}, tools: [],
+      outputSchema: { v: 1 }, providerOptions: { openai: { a: 1 } }, enabled: true,
+    };
+    await seedSkills([extra]);
+    await seedSkills([{ ...extra, outputSchema: { v: 2 }, providerOptions: { openai: { a: 2 } } }]);
+    const q = await getSkillByKey('quiz-gen');
+    expect(q).toMatchObject({ outputSchema: { v: 2 }, providerOptions: { openai: { a: 2 } } });
+    expect((await getSkillByKey('explain'))!.models).toEqual({ standard: 'openai/x' });
+    await withPlatform((tx) => tx.delete(skills).where(eq(skills.key, 'quiz-gen')));
   });
 });

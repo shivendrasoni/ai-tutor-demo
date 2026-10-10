@@ -28,8 +28,10 @@ const EXPLAIN_INSTRUCTIONS = `You are an explainer. Explain concepts clearly at 
 - You may give answers and worked solutions directly when asked.
 - Finish by checking whether the explanation made sense, and offer a follow-up example.`;
 
-/** Seed definitions. Other modules may extend by spreading: `[...SEED_SKILLS, ...more]`. */
-export const SEED_SKILLS: readonly Omit<SkillRow, 'id'>[] = Object.freeze([
+export type SeedSkill = Omit<SkillRow, 'id'>;
+
+/** Tutor seed definitions. Other modules pass theirs to `seedSkills(extra)`. */
+export const SEED_SKILLS: readonly SeedSkill[] = Object.freeze([
   {
     key: 'socratic', name: 'Socratic tutor', kind: 'chat', instructions: SOCRATIC_INSTRUCTIONS,
     models: {}, tools: ['search_curriculum'], outputSchema: null, providerOptions: null, enabled: true,
@@ -40,10 +42,10 @@ export const SEED_SKILLS: readonly Omit<SkillRow, 'id'>[] = Object.freeze([
   },
 ]);
 
-/** Upserts every SEED_SKILLS entry by key. Never overwrites `models` or `enabled` once set by an operator. */
-export async function seedSkills(): Promise<void> {
+/** Upserts SEED_SKILLS plus `extra` by key. Never overwrites `models` or `enabled` once set by an operator. */
+export async function seedSkills(extra: readonly SeedSkill[] = []): Promise<void> {
   await withPlatform(async (tx) => {
-    for (const s of SEED_SKILLS) {
+    for (const s of [...SEED_SKILLS, ...extra]) {
       await tx
         .insert(skills)
         .values(s)
@@ -54,6 +56,8 @@ export async function seedSkills(): Promise<void> {
             kind: sql`excluded.kind`,
             instructions: sql`excluded.instructions`,
             tools: sql`excluded.tools`,
+            outputSchema: sql`excluded.output_schema`,
+            providerOptions: sql`excluded.provider_options`,
           },
         });
     }

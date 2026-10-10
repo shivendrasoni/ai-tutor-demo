@@ -24,13 +24,21 @@ export class MastraRunner implements AgentRunner {
       instructions: input.instructions,
       model: input.model as never,
       tools,
+      // Drop Mastra's default StreamErrorRetryProcessor (2 retries, 3s delay): runTurn owns the single retry.
+      errorProcessorDefaults: false,
     });
     const messages: ModelMessage[] = [
       ...input.history.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: input.userText },
     ];
     const out = await agent.stream(messages,
-      { maxSteps: input.maxSteps, abortSignal: input.signal, providerOptions: input.providerOptions as never },
+      {
+        maxSteps: input.maxSteps,
+        abortSignal: input.signal,
+        providerOptions: input.providerOptions as never,
+        // Mastra defaults to 2 retries; runTurn owns the single retry, so a failure costs at most 2 provider calls per turn.
+        modelSettings: { maxRetries: 0 },
+      },
     );
     for await (const chunk of out.fullStream) {
       if (chunk.type === 'text-delta') yield { type: 'delta', text: chunk.payload.text };

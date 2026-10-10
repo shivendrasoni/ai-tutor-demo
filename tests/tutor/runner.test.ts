@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { APICallError } from 'ai';
 import { z } from 'zod';
 import type { RunEvent, RunInput, TutorTool } from '../../src/modules/tutor/runner/types';
 import { MastraRunner } from '../../src/modules/tutor/runner/mastra';
@@ -86,5 +87,13 @@ describe('MastraRunner', () => {
     const ac = new AbortController();
     ac.abort();
     await expect(collect(new MastraRunner().run(base({ signal: ac.signal })))).resolves.toBeDefined();
+  });
+
+  it('does not use Mastra default retries: a retryable APICallError costs exactly one provider call', async () => {
+    const model = scriptedModel([
+      { error: new APICallError({ message: 'rate limited', url: 'u', requestBodyValues: {}, statusCode: 429, isRetryable: true }) },
+    ]);
+    await expect(collect(new MastraRunner().run(base({ model })))).rejects.toThrow();
+    expect(model.calls).toBe(1);
   });
 });

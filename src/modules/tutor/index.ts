@@ -1,6 +1,6 @@
 export { createConversation, listChatSubjects, getMessages, listConversations, submitFeedback, type MessageRow } from './conversations';
 export { runTurn, type TurnEvent } from './turn';
-export { listSkills, seedSkills, SEED_SKILLS, type SkillRow, type SkillKind } from './skills';
+export { listSkills, seedSkills, SEED_SKILLS, type SeedSkill, type SkillRow, type SkillKind } from './skills';
 export type { Citation } from './citations';
 export { configureTutor, resetTutorConfig, type TutorDeps } from './deps';
 export { ModelRegistry, type TutorModel, type ModelTier } from './models/registry';

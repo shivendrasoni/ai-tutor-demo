@@ -1,15 +1,14 @@
-import type { Decider, DeciderAnswer, DeciderQuestion } from './types';
+import type { Decider, DeciderRun, DeciderAnswer, DeciderQuestion } from './types';
 
 export class FallbackDecider implements Decider {
-  lastRun = { fellBack: false, primaryError: false, secondaryError: false };
   constructor(
     private primary: Decider,
     private secondary: Decider,
   ) {}
 
-  async decide(state: string, questions: Record<string, DeciderQuestion>): Promise<Record<string, DeciderAnswer>> {
-    const run = { fellBack: false, primaryError: false, secondaryError: false };
-    this.lastRun = run;
+  async decide(state: string, questions: Record<string, DeciderQuestion>, meta?: DeciderRun): Promise<Record<string, DeciderAnswer>> {
+    const run = meta ?? { fellBack: false, primaryError: false, secondaryError: false };
+    run.fellBack = run.primaryError = run.secondaryError = false;
     try {
       return await this.primary.decide(state, questions);
     } catch {

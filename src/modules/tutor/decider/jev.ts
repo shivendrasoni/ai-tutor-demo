@@ -70,14 +70,14 @@ export class JevDecider implements Decider {
           type: 'choice',
           choice: a.choice,
           probabilities: probs,
-          confidence: a.confidence ?? confidenceFrom(probs),
+          confidence: a.confidence ?? (Object.keys(probs).length ? confidenceFrom(probs) : undefined),
         };
       } else {
         out[id] = {
           type: 'score',
           score: a.score,
           probabilities: probs,
-          confidence: a.confidence ?? confidenceFrom(probs),
+          confidence: a.confidence ?? (Object.keys(probs).length ? confidenceFrom(probs) : undefined),
         };
       }
     }

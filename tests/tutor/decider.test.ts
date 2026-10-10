@@ -5,7 +5,7 @@ import { FallbackDecider } from '@/modules/tutor/decider/fallback';
 import { JevDecider } from '@/modules/tutor/decider/jev';
 import { LlmDecider } from '@/modules/tutor/decider/llm';
 import { selectDecider } from '@/modules/tutor/decider/select';
-import { confidenceFrom, sanitizeAnswers, type DeciderQuestion } from '@/modules/tutor/decider/types';
+import { confidenceFrom, sanitizeAnswers, type Decider, type DeciderQuestion, type DeciderRun } from '@/modules/tutor/decider/types';
 import { ModelRegistry } from '@/modules/tutor/models/registry';
 
 const questions: Record<string, DeciderQuestion> = {
@@ -152,21 +152,80 @@ describe('sanitizeAnswers', () => {
 describe('FallbackDecider', () => {
   const ok = (p: number) => new FakeDecider({ out_of_syllabus: { type: 'yesno', p } });
   const boom = () => new FakeDecider(() => new Error('boom'));
+  const fresh = (): DeciderRun => ({ fellBack: true, primaryError: true, secondaryError: true });
 
   it('primary ok: no fallback', async () => {
     const d = new FallbackDecider(ok(0.1), ok(0.9));
-    expect((await d.decide('s', questions)).out_of_syllabus).toEqual({ type: 'yesno', p: 0.1 });
-    expect(d.lastRun).toEqual({ fellBack: false, primaryError: false, secondaryError: false });
+    const m = fresh();
+    expect((await d.decide('s', questions, m)).out_of_syllabus).toEqual({ type: 'yesno', p: 0.1 });
+    expect(m).toEqual({ fellBack: false, primaryError: false, secondaryError: false });
   });
   it('primary throws: secondary used', async () => {
     const d = new FallbackDecider(boom(), ok(0.9));
-    expect((await d.decide('s', questions)).out_of_syllabus).toEqual({ type: 'yesno', p: 0.9 });
-    expect(d.lastRun).toEqual({ fellBack: true, primaryError: true, secondaryError: false });
+    const m = fresh();
+    expect((await d.decide('s', questions, m)).out_of_syllabus).toEqual({ type: 'yesno', p: 0.9 });
+    expect(m).toEqual({ fellBack: true, primaryError: true, secondaryError: false });
   });
-  it('both throw: rejects', async () => {
+  it('both throw: rejects and meta is filled', async () => {
     const d = new FallbackDecider(boom(), boom());
-    await expect(d.decide('s', questions)).rejects.toThrow();
-    expect(d.lastRun).toEqual({ fellBack: true, primaryError: true, secondaryError: true });
+    const m = fresh();
+    await expect(d.decide('s', questions, m)).rejects.toThrow();
+    expect(m).toEqual({ fellBack: true, primaryError: true, secondaryError: true });
+  });
+  it('works without meta', async () => {
+    expect(await new FallbackDecider(boom(), ok(0.5)).decide('s', questions)).toEqual({
+      out_of_syllabus: { type: 'yesno', p: 0.5 },
+    });
+  });
+  it('concurrent calls on one instance keep separate meta', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const primary: Decider = {
+      async decide(state) {
+        if (state === 'fail') {
+          await gate;
+          throw new Error('boom');
+        }
+        return { out_of_syllabus: { type: 'yesno', p: 0.2 } };
+      },
+    };
+    const d = new FallbackDecider(primary, ok(0.9));
+    const mFail = fresh();
+    const mOk = fresh();
+    const pFail = d.decide('fail', questions, mFail);
+    const pOk = d.decide('good', questions, mOk);
+    await pOk;
+    release();
+    await pFail;
+    expect(mOk).toEqual({ fellBack: false, primaryError: false, secondaryError: false });
+    expect(mFail).toEqual({ fellBack: true, primaryError: true, secondaryError: false });
+  });
+});
+
+describe('sanitizeAnswers probability keys', () => {
+  const base = { type: 'choice', choice: 'math', confidence: 0.5 };
+  it('drops unknown keys, empty maps, and maps missing the chosen key', () => {
+    expect(sanitizeAnswers(questions, { subject: { ...base, probabilities: { math: 0.5, art: 0.5 } } })).toEqual({});
+    expect(sanitizeAnswers(questions, { subject: { ...base, probabilities: {} } })).toEqual({});
+    expect(sanitizeAnswers(questions, { subject: { ...base, probabilities: { science: 1 } } })).toEqual({});
+    expect(
+      sanitizeAnswers(questions, {
+        difficulty: { type: 'score', score: 1, confidence: 0.5, probabilities: { recall: 1 } },
+      }),
+    ).toEqual({});
+    expect(
+      sanitizeAnswers(questions, {
+        difficulty: { type: 'score', score: 1, confidence: 0.5, probabilities: { apply: 0.6, bogus: 0.4 } },
+      }),
+    ).toEqual({});
+  });
+  it('keeps a well-formed answer', () => {
+    const a = { ...base, probabilities: { math: 0.8, science: 0.2 } };
+    expect(sanitizeAnswers(questions, { subject: a })).toEqual({ subject: a });
+  });
+  it('Jev answer without probabilities is dropped (no fabricated confidence)', async () => {
+    const f = async () => new Response(JSON.stringify({ answers: { subject: { choice: 'math' } } }));
+    expect(await new JevDecider({ apiKey: 'k', fetch: f as any }).decide('s', questions)).toEqual({});
   });
 });
 

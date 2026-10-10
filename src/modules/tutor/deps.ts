@@ -66,6 +66,7 @@ export function getDeps(): TutorDeps {
   };
 }
 
+/** Tests may also pass `deciderProvider` alongside `decider` (otherwise it still comes from env selection). */
 export function configureTutor(p: Partial<TutorDeps>): void {
   override = { ...override, ...p };
 }

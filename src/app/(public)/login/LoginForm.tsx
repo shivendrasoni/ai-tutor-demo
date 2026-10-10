@@ -33,11 +33,10 @@ export default function LoginForm() {
     e.preventDefault();
     setBusy(true);
     setError('');
-    const r = await apiFetch('/api/auth/login', { method: 'POST', body: { username: username.trim(), password } });
+    const r = await apiFetch<{ home: string }>('/api/auth/login', { method: 'POST', body: { username: username.trim(), password } });
     if (r.ok) {
       setPassword('');
-      const st = await apiFetch<{ status: string }>('/api/me/status');
-      router.push(st.ok && st.data.status === 'active' ? '/learn' : '/status');
+      router.push(r.data.home);
       return; // keep the button disabled while navigating
     }
     setBusy(false);

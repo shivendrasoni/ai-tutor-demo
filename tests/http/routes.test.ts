@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { users } from '@/db/schema';
+import { studentProfiles, users } from '@/db/schema';
 import { createSession } from '@/modules/tenancy';
 import { removeStudent } from '@/modules/enrollment';
 import { DomainError } from '@/lib/errors';
@@ -81,7 +81,7 @@ describe('auth', () => {
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/application\/json/);
-    expect(await res.json()).toEqual({ roles: ['student'], isPlatformAdmin: false });
+    expect(await res.json()).toEqual({ roles: ['student'], isPlatformAdmin: false, home: '/status' });
     const cookie = res.headers.get('set-cookie')!;
     expect(cookie).toMatch(/^sid=[A-Za-z0-9_-]+;/);
     expect(cookie.toLowerCase()).toContain('httponly');
@@ -94,7 +94,19 @@ describe('auth', () => {
     const res = await loginRoute.POST(
       req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.platform.userId), password: SEED_PASSWORD } }),
     );
-    expect(await res.json()).toEqual({ roles: [], isPlatformAdmin: true });
+    expect(await res.json()).toEqual({ roles: [], isPlatformAdmin: true, home: '/platform' });
+  });
+
+  it('login home: pending student -> /status, school admin -> /school', async () => {
+    await withPlatform((tx) => tx.update(studentProfiles).set({ status: 'pending_payment' }).where(eq(studentProfiles.userId, seed.a.studentId)));
+    const st = await loginRoute.POST(
+      req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.a.studentId), password: SEED_PASSWORD } }),
+    );
+    expect((await st.json()).home).toBe('/status');
+    const sa = await loginRoute.POST(
+      req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.a.schoolAdmin.userId), password: SEED_PASSWORD } }),
+    );
+    expect((await sa.json()).home).toBe('/school');
   });
 
   it('bad credentials → 401 INVALID_CREDENTIALS, body never echoes the password', async () => {

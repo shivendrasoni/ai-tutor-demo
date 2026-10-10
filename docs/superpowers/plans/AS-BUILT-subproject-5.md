@@ -31,10 +31,11 @@ Later plans must use these real names. They take precedence over plan 5's text w
 - `POST /api/platform/payments` -> `{ periodStart, periodEnd }` (ISO). The typed amount is stored as given. A `paidAt` whose UTC date is later than today is 400 `VALIDATION` (the payment form rejects it first, with no request).
 - `GET /api/school/enrollment?schoolId=&branchId=` -> `{ summary }`. A `branch_admin` passing another branch or school gets 403, never a widened scope.
 - `GET /api/school/students?schoolId=&branchId=&grade=&status=` -> `{ students }`. `POST /api/school/students` -> 201 `{ inviteUrl }`. `POST /api/school/students/:id/remove` -> `{ ok: true }`.
-- School setup (school_admin; branch_admin for their own branch except subjects). All POST with JSON, the school comes from the session, malformed ids are 404, and the standard envelope applies:
+- School setup (school_admin; branch_admin for their own branch except subjects). All POST with JSON, the school comes from the session, malformed or unknown ids are 404, and the standard envelope applies:
   - `POST /api/school/sections` `{ branchId, grade, name }` -> 201 `{ id }`. `POST /api/school/subjects` `{ name }` -> 201 `{ id }` (school_admin only; branch_admin is 403).
   - `POST /api/school/teachers` `{ branchId, username, password, name, email? }` -> 201 `{ userId, username }`. The password is checked by `assertPasswordStrength` and never returned. `POST /api/school/assignments` `{ teacherId, sectionId, subjectId }` -> 201 `{ ok: true }` (idempotent).
-  - Another school's or branch's ids give 403/404 (or 400 for a branch RLS hides in `teachers`), never a leak.
+  - Another school's ids (and unknown or malformed ones) are 404 for a school_admin. A branch_admin naming another branch of their own school gets 403, and naming another school's branch gets 403 on `teachers` and 404 on `sections`. A teacher or section of the wrong branch in `assignments` is 404 (403 when a branch_admin names a section outside their branch). Never a leak.
+  - The teacher form shows `details.suggestions` of a 409 `USERNAME_TAKEN` as buttons that fill the username field.
 - `/school` has a "Setup" card (`_components/SetupSection.tsx`, forms in `SetupForms.tsx`, data from `loadSchoolSetup` in `loaders.ts`) with the four forms. The subject form shows for school_admin only; the assign form offers only the chosen teacher's branch sections.
 - `POST /api/school/branches/:id/code` body `{ action: 'rotate' | 'enable' | 'disable' }` -> `{ signupCode }` or `{}`.
 - `GET /api/teacher/progress?sectionId=&subjectId=` -> `{ progress }`. `GET /api/teacher/usage?sectionId=&subjectId=` -> `{ usage }`. Both require both ids; an unassigned section or subject is 403.

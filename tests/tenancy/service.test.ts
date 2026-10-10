@@ -170,7 +170,7 @@ describe('createStaffUser', () => {
       createStaffUser(seed.a.schoolAdmin, {
         ...base, schoolId: seed.a.schoolId, branchId: seed.b.branchId, role: 'teacher', username: 'teacher.four',
       }),
-    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     // student role is not a staff role
     await expect(
       createStaffUser(seed.a.schoolAdmin, {
@@ -237,13 +237,13 @@ describe('assignTeacher', () => {
       code: expect.stringMatching(/^(FORBIDDEN|NOT_FOUND)$/),
     });
     await expect(assignTeacher(seed.a.schoolAdmin, { ...ok, subjectId: seed.b.subjectId })).rejects.toMatchObject({
-      code: 'VALIDATION',
+      code: 'NOT_FOUND',
     });
     await expect(assignTeacher(seed.a.schoolAdmin, { ...ok, teacherId: seed.b.teacherId })).rejects.toMatchObject({
-      code: 'VALIDATION',
+      code: 'NOT_FOUND',
     });
     await expect(assignTeacher(seed.a.schoolAdmin, { ...ok, teacherId: seed.a.studentId })).rejects.toMatchObject({
-      code: 'VALIDATION',
+      code: 'NOT_FOUND',
     });
   });
 });

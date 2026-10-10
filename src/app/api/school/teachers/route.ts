@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DomainError } from '@/lib/errors';
 import { handle, json, readJson, requireActor } from '@/lib/http';
+import { isUuid } from '@/lib/uuid';
 import { createStaffUser, normalizeUsername } from '@/modules/tenancy';
 
 export const dynamic = 'force-dynamic';
@@ -15,13 +16,11 @@ const Body = z.object({
   email: z.string().max(254).optional(),
 });
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export const POST = handle(async (req: Request) => {
   const actor = await requireActor(req);
   const body = await readJson(req, Body);
   if (!actor.schoolId) throw new DomainError('FORBIDDEN');
-  if (!UUID_RE.test(body.branchId)) throw new DomainError('NOT_FOUND', 'Branch not found');
+  if (!isUuid(body.branchId)) throw new DomainError('NOT_FOUND', 'Branch not found');
   const { userId } = await createStaffUser(actor, { ...body, schoolId: actor.schoolId, role: 'teacher' });
   return json({ userId, username: normalizeUsername(body.username) }, { status: 201 });
 });

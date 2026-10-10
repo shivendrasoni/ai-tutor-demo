@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { sections, subjects, teacherAssignments, users } from '@/db/schema';
 import { createSession, login } from '@/modules/tenancy';
+import { addBranchA2, type BranchA2 } from '../helpers/branch2';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
 import * as sectionsRoute from '@/app/api/school/sections/route';
@@ -11,9 +12,11 @@ import * as teachersRoute from '@/app/api/school/teachers/route';
 import * as assignmentsRoute from '@/app/api/school/assignments/route';
 
 let seed: Seed;
+let a2: BranchA2;
 beforeEach(async () => {
   await resetDb();
   seed = await seedTwoSchools();
+  a2 = await addBranchA2(seed);
 });
 afterAll(closeDb);
 
@@ -39,6 +42,16 @@ describe('POST /api/school/sections', () => {
     const cookie = await sid(seed.a.branchAdmin.userId!);
     expect((await post(sectionsRoute.POST, cookie, { branchId: seed.a.branchId, grade: 10, name: '10-A' })).status).toBe(201);
     expect((await post(sectionsRoute.POST, cookie, { branchId: seed.b.branchId, grade: 10, name: '10-A' })).status).toBe(404);
+  });
+  it('branch_admin of A1 cannot create a section in A2 (403, no row); school_admin can (201)', async () => {
+    const count = async () => (await withPlatform((tx) => tx.select().from(sections).where(eq(sections.branchId, a2.branchId)))).length;
+    const before = await count();
+    const denied = await post(sectionsRoute.POST, await sid(seed.a.branchAdmin.userId!), { branchId: a2.branchId, grade: 10, name: '10-A2' });
+    expect(denied.status).toBe(403);
+    expect(await count()).toBe(before);
+    const ok = await post(sectionsRoute.POST, await sid(seed.a.schoolAdmin.userId!), { branchId: a2.branchId, grade: 10, name: '10-A2' });
+    expect(ok.status).toBe(201);
+    expect(await count()).toBe(before + 1);
   });
   it('401 anonymous, 403 teacher/student, 400 bad body/grade/duplicate, 404 malformed or unknown branch', async () => {
     const body = { branchId: seed.a.branchId, grade: 9, name: 'X' };
@@ -91,8 +104,18 @@ describe('POST /api/school/teachers', () => {
     expect((await post(teachersRoute.POST, cookie, { ...teacher, branchId: seed.a.branchId })).status).toBe(201);
     const before = (await withPlatform((tx) => tx.select().from(users))).length;
     const other = await post(teachersRoute.POST, cookie, { ...teacher, username: 'other_t', branchId: seed.b.branchId });
-    expect([403, 404]).toContain(other.status);
+    expect(other.status).toBe(403); // the branch_admin's branch scope is checked before the lookup
     expect((await withPlatform((tx) => tx.select().from(users))).length).toBe(before);
+  });
+  it('branch_admin of A1 cannot create a teacher in A2 (403, no user); school_admin can (201)', async () => {
+    const count = async () => (await withPlatform((tx) => tx.select().from(users))).length;
+    const before = await count();
+    const denied = await post(teachersRoute.POST, await sid(seed.a.branchAdmin.userId!), { ...teacher, username: 'a2_new', branchId: a2.branchId });
+    expect(denied.status).toBe(403);
+    expect(await count()).toBe(before);
+    const ok = await post(teachersRoute.POST, await sid(seed.a.schoolAdmin.userId!), { ...teacher, username: 'a2_new', branchId: a2.branchId });
+    expect(ok.status).toBe(201);
+    expect(await count()).toBe(before + 1);
   });
   it('weak password 400 WEAK_PASSWORD (not echoed), taken username 409, bad branch 404, student/teacher 403, anonymous 401', async () => {
     const cookie = await sid(seed.a.schoolAdmin.userId!);
@@ -100,9 +123,15 @@ describe('POST /api/school/teachers', () => {
     expect(weak.status).toBe(400);
     expect(await errCode(weak)).toBe('WEAK_PASSWORD');
     expect((await post(teachersRoute.POST, cookie, { ...teacher, branchId: seed.a.branchId })).status).toBe(201);
-    expect((await post(teachersRoute.POST, cookie, { ...teacher, branchId: seed.a.branchId })).status).toBe(409);
+    const taken = await post(teachersRoute.POST, cookie, { ...teacher, branchId: seed.a.branchId });
+    expect(taken.status).toBe(409);
+    const takenBody = await taken.json();
+    expect(takenBody.error.code).toBe('USERNAME_TAKEN');
+    expect(Array.isArray(takenBody.error.details.suggestions)).toBe(true);
+    expect(takenBody.error.details.suggestions.length).toBeGreaterThan(0);
     expect((await post(teachersRoute.POST, cookie, { ...teacher, username: 'zz_t', branchId: 'nope' })).status).toBe(404);
-    expect((await post(teachersRoute.POST, cookie, { ...teacher, username: 'zz_t', branchId: UUID0 })).status).toBe(400); // unknown branch: same answer as another school's
+    expect((await post(teachersRoute.POST, cookie, { ...teacher, username: 'zz_t', branchId: UUID0 })).status).toBe(404); // unknown branch
+    expect((await post(teachersRoute.POST, cookie, { ...teacher, username: 'zz_t', branchId: seed.b.branchId })).status).toBe(404); // another school's branch: same answer
     expect((await post(teachersRoute.POST, cookie, { ...teacher, username: 'zz_t' })).status).toBe(400);
     expect((await post(teachersRoute.POST, await sid(seed.a.teacher.userId!), { ...teacher, branchId: seed.a.branchId })).status).toBe(403);
     expect((await post(teachersRoute.POST, undefined, { ...teacher, branchId: seed.a.branchId })).status).toBe(401);
@@ -124,19 +153,40 @@ describe('POST /api/school/assignments', () => {
     expect((await post(assignmentsRoute.POST, cookie, body)).status).toBe(201);
     expect(await withPlatform((tx) => tx.select().from(teacherAssignments).where(eq(teacherAssignments.teacherId, teacherId)))).toHaveLength(1);
   });
-  it('branch_admin can assign in their branch; teacher 403; anonymous 401; malformed ids 404; wrong-branch teacher 400', async () => {
+  it('branch_admin can assign in their branch; teacher 403; anonymous 401', async () => {
     const teacherId = await newTeacher();
     const body = { teacherId, sectionId: seed.a.sectionId, subjectId: seed.a.subjectId };
     expect((await post(assignmentsRoute.POST, await sid(seed.a.branchAdmin.userId!), body)).status).toBe(201);
     expect((await post(assignmentsRoute.POST, await sid(seed.a.teacher.userId!), body)).status).toBe(403);
     expect((await post(assignmentsRoute.POST, undefined, body)).status).toBe(401);
+  });
+  it('malformed or unknown ids are 404; a missing field is 400', async () => {
+    const teacherId = await newTeacher();
+    const body = { teacherId, sectionId: seed.a.sectionId, subjectId: seed.a.subjectId };
     const cookie = await sid(seed.a.schoolAdmin.userId!);
     for (const k of ['teacherId', 'sectionId', 'subjectId'] as const) {
       expect((await post(assignmentsRoute.POST, cookie, { ...body, [k]: 'nope' })).status).toBe(404);
+      expect((await post(assignmentsRoute.POST, cookie, { ...body, [k]: UUID0 })).status).toBe(404);
     }
-    expect((await post(assignmentsRoute.POST, cookie, { ...body, sectionId: UUID0 })).status).toBe(404);
-    expect((await post(assignmentsRoute.POST, cookie, { ...body, subjectId: UUID0 })).status).toBe(400);
-    expect((await post(assignmentsRoute.POST, cookie, { ...body, teacherId: UUID0 })).status).toBe(400);
     expect((await post(assignmentsRoute.POST, cookie, { sectionId: seed.a.sectionId })).status).toBe(400);
+  });
+  const rows = (teacherId: string) =>
+    withPlatform((tx) => tx.select().from(teacherAssignments).where(eq(teacherAssignments.teacherId, teacherId)));
+  it('a teacher of another branch (A2) cannot be assigned to an A1 section: 404, no row', async () => {
+    const cookie = await sid(seed.a.schoolAdmin.userId!);
+    const r = await post(assignmentsRoute.POST, cookie, { teacherId: a2.teacherId, sectionId: seed.a.sectionId, subjectId: seed.a.subjectId });
+    expect(r.status).toBe(404);
+    expect(await rows(a2.teacherId)).toHaveLength(0);
+    // and an A1 teacher cannot be assigned to an A2 section
+    const r2 = await post(assignmentsRoute.POST, cookie, { teacherId: seed.a.teacherId, sectionId: a2.sectionId, subjectId: seed.a.subjectId });
+    expect(r2.status).toBe(404);
+    expect((await rows(seed.a.teacherId)).every((x) => x.sectionId !== a2.sectionId)).toBe(true);
+  });
+  it('branch_admin of A1 cannot assign in A2 (403, no row); school_admin can (201)', async () => {
+    const body = { teacherId: a2.teacherId, sectionId: a2.sectionId, subjectId: seed.a.subjectId };
+    expect((await post(assignmentsRoute.POST, await sid(seed.a.branchAdmin.userId!), body)).status).toBe(403);
+    expect(await rows(a2.teacherId)).toHaveLength(0);
+    expect((await post(assignmentsRoute.POST, await sid(seed.a.schoolAdmin.userId!), body)).status).toBe(201);
+    expect(await rows(a2.teacherId)).toHaveLength(1);
   });
 });

@@ -1,13 +1,14 @@
 /**
  * Cross-school isolation for the school-setup surface (sections, subjects, teachers, assignments).
  * School A's actors target School B's ids through the API routes and services; each call must be denied
- * (403/404, or 400 where the input is simply invalid for A), leak nothing, and leave B's data unchanged.
+ * (exact status: 404 when RLS hides the id, 403 when the role or branch scope forbids it), leak nothing, and leave B's data unchanged.
  */
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { tenantTables } from '@/db/schema';
 import { createSession, listTeachers } from '@/modules/tenancy';
+import { addBranchA2, type BranchA2 } from '../helpers/branch2';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
 import * as sectionsRoute from '@/app/api/school/sections/route';
@@ -16,9 +17,11 @@ import * as teachersRoute from '@/app/api/school/teachers/route';
 import * as assignmentsRoute from '@/app/api/school/assignments/route';
 
 let seed: Seed;
+let a2: BranchA2;
 beforeEach(async () => {
   await resetDb();
   seed = await seedTwoSchools();
+  a2 = await addBranchA2(seed);
 });
 afterAll(closeDb);
 
@@ -47,20 +50,20 @@ async function call(handler: (r: Request) => Promise<Response>, userId: string, 
 const teacherBody = (branchId: string) => ({ username: 'intruder_t', password: 'a-good-password-1', name: 'Intruder', branchId });
 
 describe('setup routes: School A actors against School B ids', () => {
-  for (const [label, actorOf] of [
-    ['school_admin', (s: Seed) => s.a.schoolAdmin.userId!],
-    ['branch_admin', (s: Seed) => s.a.branchAdmin.userId!],
+  for (const [label, actorOf, teacherStatus] of [
+    ['school_admin', (s: Seed) => s.a.schoolAdmin.userId!, 404],
+    ['branch_admin', (s: Seed) => s.a.branchAdmin.userId!, 403], // branch scope is checked before the lookup
   ] as const) {
     it(`${label}: section in B's branch is denied and B is unchanged`, async () => {
       const before = await snapshot(seed.b.schoolId);
       const r = await call(sectionsRoute.POST, actorOf(seed), { branchId: seed.b.branchId, grade: 9, name: 'Z-1' });
-      expect([403, 404]).toContain(r.status);
+      expect(r.status).toBe(404);
       expect(await snapshot(seed.b.schoolId)).toEqual(before);
     });
     it(`${label}: teacher in B's branch is denied, creates no user`, async () => {
       const before = await snapshot(seed.b.schoolId);
       const r = await call(teachersRoute.POST, actorOf(seed), teacherBody(seed.b.branchId));
-      expect([400, 403, 404]).toContain(r.status); // 400: RLS hides B's branch, indistinguishable from an unknown one
+      expect(r.status).toBe(teacherStatus);
       expect(await snapshot(seed.b.schoolId)).toEqual(before);
     });
     it(`${label}: assigning B's teacher/section/subject is denied`, async () => {
@@ -73,11 +76,31 @@ describe('setup routes: School A actors against School B ids', () => {
         { ...ids, sectionId: seed.a.sectionId, subjectId: seed.a.subjectId }, // B teacher on A section
       ]) {
         const r = await call(assignmentsRoute.POST, actorOf(seed), body);
-        expect([400, 403, 404]).toContain(r.status);
+        expect(r.status).toBe(404);
       }
       expect(await snapshot(seed.b.schoolId)).toEqual(before);
     });
   }
+
+  it('branch_admin of A1 against A2 (same school, other branch): denied 403 and nothing written', async () => {
+    const before = await snapshot(seed.a.schoolId);
+    const actor = seed.a.branchAdmin.userId!;
+    expect((await call(sectionsRoute.POST, actor, { branchId: a2.branchId, grade: 9, name: 'Z-2' })).status).toBe(403);
+    expect((await call(teachersRoute.POST, actor, teacherBody(a2.branchId))).status).toBe(403);
+    const ids = { teacherId: a2.teacherId, sectionId: a2.sectionId, subjectId: seed.a.subjectId };
+    expect((await call(assignmentsRoute.POST, actor, ids)).status).toBe(403); // A2 teacher, A2 section
+    expect((await call(assignmentsRoute.POST, actor, { ...ids, teacherId: seed.a.teacherId })).status).toBe(403); // A1 teacher, A2 section
+    expect((await call(assignmentsRoute.POST, actor, { ...ids, sectionId: seed.a.sectionId })).status).toBe(404); // A2 teacher, A1 section
+    expect(await snapshot(seed.a.schoolId)).toEqual(before);
+  });
+
+  it('positive control: school_admin of A can create in and assign across A2', async () => {
+    const actor = seed.a.schoolAdmin.userId!;
+    expect((await call(sectionsRoute.POST, actor, { branchId: a2.branchId, grade: 9, name: 'Z-2' })).status).toBe(201);
+    expect((await call(teachersRoute.POST, actor, teacherBody(a2.branchId))).status).toBe(201);
+    const ids = { teacherId: a2.teacherId, sectionId: a2.sectionId, subjectId: seed.a.subjectId };
+    expect((await call(assignmentsRoute.POST, actor, ids)).status).toBe(201);
+  });
 
   it('a subject is always created in the caller school: a body schoolId for B is ignored', async () => {
     const before = await snapshot(seed.b.schoolId);
@@ -89,9 +112,9 @@ describe('setup routes: School A actors against School B ids', () => {
   it("B's school_admin is denied on A's ids symmetrically", async () => {
     const before = await snapshot(seed.a.schoolId);
     const s = await call(sectionsRoute.POST, seed.b.schoolAdmin.userId!, { branchId: seed.a.branchId, grade: 9, name: 'Z-1' });
-    expect([403, 404]).toContain(s.status);
+    expect(s.status).toBe(404);
     const t = await call(teachersRoute.POST, seed.b.schoolAdmin.userId!, teacherBody(seed.a.branchId));
-    expect([400, 403, 404]).toContain(t.status);
+    expect(t.status).toBe(404);
     expect(await snapshot(seed.a.schoolId)).toEqual(before);
   });
 
@@ -116,7 +139,7 @@ describe('setup routes: School A actors against School B ids', () => {
 describe('listTeachers isolation', () => {
   it("returns only the caller's school (and a branch_admin's branch); never B teachers", async () => {
     const asAdmin = await listTeachers(seed.a.schoolAdmin);
-    expect(asAdmin.map((t) => t.userId)).toEqual([seed.a.teacherId]);
+    expect(asAdmin.map((t) => t.userId).sort()).toEqual([seed.a.teacherId, a2.teacherId].sort()); // both A branches, never B
     expect((await listTeachers(seed.a.branchAdmin)).map((t) => t.userId)).toEqual([seed.a.teacherId]);
     expect((await listTeachers(seed.b.schoolAdmin)).map((t) => t.userId)).toEqual([seed.b.teacherId]);
     await expect(listTeachers(seed.a.teacher)).rejects.toMatchObject({ code: 'FORBIDDEN' });

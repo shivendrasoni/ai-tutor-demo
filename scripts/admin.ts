@@ -33,6 +33,7 @@ import { closeDb, withPlatform } from '@/db/client';
 import { branches, schools, sections, users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import { redactError } from '@/lib/redact';
+import { isUuid } from '@/lib/uuid';
 import { createPlan, listPendingSubscriptions, recordPayment, resetStudentPassword } from '@/modules/enrollment';
 import {
   assignTeacher, createBranch, createSchool, createSection, createStaffUser, createSubject, hashPassword, listSubjects, listTeachers,
@@ -188,7 +189,7 @@ const commands: Record<string, Command> = {
       const schoolId = req(f, 'school');
       const a = await actor();
       requirePlatform(a);
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
+      if (!isUuid(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
       const [school, branchRows, sectionRows] = await withPlatform(async (tx) => {
         const [s] = await tx.select({ id: schools.id, name: schools.name, board: schools.board }).from(schools).where(eq(schools.id, schoolId));
         if (!s) throw new DomainError('NOT_FOUND', 'School not found');

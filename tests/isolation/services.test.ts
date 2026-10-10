@@ -126,10 +126,10 @@ describe('service-level isolation: School A actors vs School B ids', () => {
     await expectDeniedNoBChange(() =>
       createStaffUser(a.branchAdmin, { schoolId: b.schoolId, branchId: b.branchId, role: 'teacher', ...staff }),
     );
-    // Own school id but B's branch: RLS hides B's branch -> VALIDATION, nothing written.
+    // Own school id but B's branch: RLS hides B's branch -> NOT_FOUND, nothing written.
     await expectDeniedNoBChange(
       () => createStaffUser(a.schoolAdmin, { schoolId: a.schoolId, branchId: b.branchId, role: 'teacher', ...staff }),
-      ['VALIDATION'],
+      ['NOT_FOUND'],
     );
     const u = await withPlatform((tx) => tx.select().from(users).where(eq(users.username, 'intruder_staff')));
     expect(u).toHaveLength(0);
@@ -145,14 +145,14 @@ describe('service-level isolation: School A actors vs School B ids', () => {
     await expectDeniedNoBChange(() =>
       assignTeacher(a.branchAdmin, { teacherId: a.teacherId, sectionId: b.sectionId, subjectId: a.subjectId }),
     );
-    // A's own section but B's subject / B's teacher: rejected as VALIDATION (not visible under A's tenant).
+    // A's own section but B's subject / B's teacher: rejected as NOT_FOUND (not visible under A's tenant).
     await expectDeniedNoBChange(
       () => assignTeacher(a.schoolAdmin, { teacherId: a.teacherId, sectionId: a.sectionId, subjectId: b.subjectId }),
-      ['VALIDATION'],
+      ['NOT_FOUND'],
     );
     await expectDeniedNoBChange(
       () => assignTeacher(a.schoolAdmin, { teacherId: b.teacherId, sectionId: a.sectionId, subjectId: a.subjectId }),
-      ['VALIDATION'],
+      ['NOT_FOUND'],
     );
     expect(await countTA()).toBe(before);
   });

@@ -1,27 +1,60 @@
 'use client';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Field } from '@/app/ui/components';
 import type { BranchListing } from '@/modules/analytics';
 import type { SetupProps } from './SetupSection';
 
 const GRADES = [5, 6, 7, 8, 9, 10, 11, 12];
 
+export type SetupError = { message: string; suggestions: string[] };
+
+/** Reads the API error envelope: the message plus any username suggestions (USERNAME_TAKEN details). */
+export function parseSetupError(body: unknown): SetupError {
+  const e = (body as { error?: { message?: unknown; details?: { suggestions?: unknown } } } | null)?.error;
+  const s = e?.details?.suggestions;
+  return {
+    message: typeof e?.message === 'string' && e.message ? e.message : 'Could not save',
+    suggestions: Array.isArray(s) ? s.filter((x): x is string => typeof x === 'string') : [],
+  };
+}
+
+export function SetupFormError({ error, onPick }: { error: SetupError; onPick: (suggestion: string) => void }) {
+  return (
+    <div role="alert">
+      <p>{error.message}</p>
+      {error.suggestions.length > 0 ? (
+        <>
+          <p>Try one of these:</p>
+          <p>
+            {error.suggestions.map((s) => (
+              <button key={s} type="button" onClick={() => onPick(s)}>{s}</button>
+            ))}
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** One JSON POST form: shows the server's error message, or `done` after success, and refreshes the page data. */
 function SetupForm({
-  title, url, build, done, submitLabel, children,
+  title, url, build, done, submitLabel, suggestionField, children,
 }: {
   title: string;
   url: string;
   build: (fd: FormData) => unknown;
   done: string;
   submitLabel: string;
+  /** Name of the input that username suggestions fill. */
+  suggestionField?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SetupError | null>(null);
   const [ok, setOk] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,26 +70,32 @@ function SetupForm({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        setError(body?.error?.message ?? 'Could not save');
+        setError(parseSetupError(body));
         return;
       }
       form.reset();
       setOk(true);
       router.refresh();
     } catch {
-      setError('Could not save');
+      setError({ message: 'Could not save', suggestions: [] });
     } finally {
       setBusy(false);
     }
   }
 
+  function pick(suggestion: string) {
+    const input = suggestionField ? formRef.current?.elements.namedItem(suggestionField) : null;
+    if (input instanceof HTMLInputElement) input.value = suggestion;
+    setError(null);
+  }
+
   return (
-    <form onSubmit={submit} aria-label={title}>
+    <form ref={formRef} onSubmit={submit} aria-label={title} onChange={() => setOk(false)}>
       <h3>{title}</h3>
       {children}
       <button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
       {ok ? <p role="status">{done}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <SetupFormError error={error} onPick={pick} /> : null}
     </form>
   );
 }
@@ -98,7 +137,7 @@ export function AddSubjectForm() {
 export function AddTeacherForm({ branches }: { branches: BranchListing[] }) {
   return (
     <SetupForm
-      title="Create a teacher account" url="/api/school/teachers" submitLabel="Create teacher"
+      title="Create a teacher account" url="/api/school/teachers" submitLabel="Create teacher" suggestionField="username"
       done="Teacher account created. Share the username and the password you set with them."
       build={(fd) => ({
         branchId: str(fd, 'branchId'), name: str(fd, 'teacherName'), username: str(fd, 'username'),

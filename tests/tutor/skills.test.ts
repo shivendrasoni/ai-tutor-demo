@@ -36,7 +36,10 @@ describe('skills', () => {
     expect(row?.models).toEqual({ standard: 'openai/x' });
   });
   it('listSkills(kind) filters by kind and skips disabled', async () => {
-    expect(await listSkills('generator')).toEqual([]);
+    expect((await listSkills('generator')).map((s) => s.key)).toEqual([
+      'last_night_notes_generator', 'mock_exam_generator', 'practice_test_generator', 'study_notes_generator',
+    ]);
+    expect((await listSkills('grader')).map((s) => s.key)).toEqual(['answer_grader']);
     await withPlatform((tx) => tx.update(skills).set({ enabled: false }).where(eq(skills.key, 'explain')));
     expect((await listSkills('chat')).map((s) => s.key)).toEqual(['socratic']);
     expect((await listSkills()).map((s) => s.key)).not.toContain('explain');

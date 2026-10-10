@@ -146,3 +146,46 @@ export function notes(opts: { chapters?: string[]; perChapter?: number; bodyWord
     ),
   };
 }
+
+// ---- Task 3: scripted LLM models ----
+import { vi } from 'vitest';
+import { MockLanguageModelV4 } from 'ai/test';
+import { configureTutor, resetTutorConfig } from '@/modules/tutor/deps';
+import { ModelRegistry } from '@/modules/tutor/models/registry';
+
+const usageOf = (i: number, o: number) => ({
+  inputTokens: { total: i, noCache: i, cacheRead: undefined, cacheWrite: undefined },
+  outputTokens: { total: o, text: o, reasoning: undefined },
+});
+
+/** ai@7 (spec v4) model: each `doGenerate` returns the next scripted item as JSON text, or throws an Error item. The last item repeats. */
+export function mockModel(script: Array<object | Error>): MockLanguageModelV4 {
+  let n = 0;
+  return new MockLanguageModelV4({
+    doGenerate: async () => {
+      const item = script[Math.min(n++, script.length - 1)]!;
+      if (item instanceof Error) throw item;
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(item) }],
+        finishReason: { unified: 'stop' as const, raw: undefined },
+        usage: usageOf(10, 5),
+        warnings: [],
+      };
+    },
+  });
+}
+
+/** The only place that wires models for study tests. Undo with `resetStudyMocks()` in afterEach. */
+export function useMockModels(m: { standard?: MockLanguageModelV4; advanced?: MockLanguageModelV4 } = {}): void {
+  vi.stubEnv('LLM_STANDARD_MODEL', 'mock/standard');
+  vi.stubEnv('LLM_ADVANCED_MODEL', 'mock/advanced');
+  const registry = new ModelRegistry();
+  if (m.standard) registry.override('mock/standard', m.standard as never);
+  if (m.advanced) registry.override('mock/advanced', m.advanced as never);
+  configureTutor({ registry });
+}
+
+export function resetStudyMocks(): void {
+  resetTutorConfig();
+  vi.unstubAllEnvs();
+}

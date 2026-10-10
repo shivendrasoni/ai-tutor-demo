@@ -43,6 +43,12 @@ describe('payment form helpers', () => {
     expect(() => buildPaymentBody({ ...form, amount: '4.999' })).toThrow(expect.objectContaining({ code: 'VALIDATION' }));
     expect(() => buildPaymentBody({ ...form, amount: '' })).toThrow(expect.objectContaining({ code: 'VALIDATION' }));
   });
+  it('buildPaymentBody rejects a paid-at date later than today (UTC); today is fine', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    expect(buildPaymentBody({ ...form, paidAt: today }).paidAt).toBe(`${today}T00:00:00.000Z`);
+    expect(() => buildPaymentBody({ ...form, paidAt: tomorrow })).toThrow(expect.objectContaining({ code: 'VALIDATION' }));
+  });
   it('buildPaymentBody sends an ISO paidAt and omits a blank reference', () => {
     const b = buildPaymentBody(form);
     expect(b.paidAt).toBe('2026-10-10T00:00:00.000Z');

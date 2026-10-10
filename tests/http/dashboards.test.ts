@@ -165,6 +165,15 @@ describe('teacher progress/usage', () => {
 });
 
 describe('payments amount', () => {
+  it('a paidAt later than today (UTC) -> 400 VALIDATION, nothing recorded', async () => {
+    const platform = await sid(w.platform.userId);
+    const future = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const res = await paymentsRoute.POST(req('/x', platform, { subscriptionId: w.a.subscriptionId, amountMinor: 40000, paidAt: future }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('VALIDATION');
+    const rows = await withPlatform((tx) => tx.select().from(payments).where(eq(payments.subscriptionId, w.a.subscriptionId)));
+    expect(rows).toHaveLength(0);
+  });
   const paidAt = '2026-10-01T00:00:00.000Z';
   it('amount different from plan price is stored as typed (Review Focus 3)', async () => {
     const platform = await sid(w.platform.userId);

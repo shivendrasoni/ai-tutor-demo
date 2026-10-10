@@ -25,6 +25,7 @@ export function buildPaymentBody(form: PaymentForm): {
   const date = form.paidAt.trim();
   const d = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00.000Z`) : new Date(NaN);
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== date) throw new DomainError('VALIDATION', 'Enter a valid paid-at date');
+  if (date > new Date().toISOString().slice(0, 10)) throw new DomainError('VALIDATION', 'Paid-at date cannot be in the future');
   const reference = form.reference.trim();
   return {
     subscriptionId: form.subscriptionId,

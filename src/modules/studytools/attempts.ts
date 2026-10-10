@@ -38,6 +38,8 @@ export type AttemptView = {
   questions?: ReviewQuestion[];
 };
 
+export type StartedAttempt = { attemptId: string; startedAt: Date; deadline: Date | null; answers: Answers };
+
 const validation = (m: string) => new DomainError('VALIDATION', m);
 const notFound = () => new DomainError('NOT_FOUND');
 
@@ -105,7 +107,7 @@ async function dispatchGradeJobs(schoolId: string, attemptId: string, jobs: stri
   return status;
 }
 
-export async function startAttempt(actor: Actor, artifactId: string): Promise<{ attemptId: string; startedAt: Date; deadline: Date | null }> {
+export async function startAttempt(actor: Actor, artifactId: string): Promise<StartedAttempt> {
   const scope = await studentScope(actor);
   if (!UUID_RE.test(artifactId)) throw notFound();
   const closed: { attemptId: string; jobs: string[]; status: 'grading' | 'graded' }[] = [];
@@ -123,7 +125,7 @@ export async function startAttempt(actor: Actor, artifactId: string): Promise<{ 
       .for('update');
     for (const o of open) {
       const d = deadlineOf(art, o.startedAt);
-      if (!isExpired(art, o)) return { attemptId: o.id, startedAt: o.startedAt, deadline: d };
+      if (!isExpired(art, o)) return { attemptId: o.id, startedAt: o.startedAt, deadline: d, answers: { ...((o.answers ?? {}) as Answers) } };
       // Expired and never submitted: close it at its deadline so it gets scored instead of lingering.
       const c = await closeAttempt(tx, o, art, d!);
       closed.push({ attemptId: o.id, ...c });
@@ -133,7 +135,7 @@ export async function startAttempt(actor: Actor, artifactId: string): Promise<{ 
       .insert(attempts)
       .values({ schoolId: scope.schoolId, artifactId, studentId: actor.userId, status: 'in_progress', startedAt, answers: {} })
       .returning({ id: attempts.id });
-    return { attemptId: row!.id, startedAt, deadline: deadlineOf(art, startedAt) };
+    return { attemptId: row!.id, startedAt, deadline: deadlineOf(art, startedAt), answers: {} };
   });
   for (const c of closed) await dispatchGradeJobs(scope.schoolId, c.attemptId, c.jobs, c.status);
   return started;

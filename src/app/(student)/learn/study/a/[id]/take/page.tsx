@@ -4,13 +4,13 @@ import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { allQuestions, authRedirect, studyFetch, type Artifact, type ViewQuestion } from '../../../_lib/api';
+import { startTake } from '../../../_lib/start';
 import { formatClock } from '../../../_lib/timing';
 import { useAutosave } from '../../../_lib/useAutosave';
 import { useCountdown } from '../../../_lib/useCountdown';
 import styles from '../../../study.module.css';
 
 type Answers = Record<string, number | string>;
-type Started = { attemptId: string; deadline: string | null };
 
 export default function TakePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -34,27 +34,19 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
     if (started.current) return;
     started.current = true;
     void (async () => {
-      const [a, s] = await Promise.all([
-        studyFetch<Artifact>(`/api/study/artifacts/${id}`),
-        studyFetch<Started>(`/api/study/artifacts/${id}/attempts`, { method: 'POST' }),
-      ]);
-      if (!a.ok || !s.ok) {
-        const e = (!a.ok ? a : s) as { error: { status: number; code: string; message?: string } };
-        const to = authRedirect(e.error);
+      const r = await startTake(id);
+      if (!r.ok) {
+        const to = authRedirect(r.error);
         if (to) router.replace(to);
-        else setError(e.error.message ?? 'Could not start this test.');
+        else setError(r.error.message ?? 'Could not start this test.'); // fatal: no attempt id, so autosave stays off
         return;
       }
-      attemptRef.current = s.data.attemptId;
-      // A resumed attempt keeps its saved answers.
-      const prev = await studyFetch<{ answers: Answers }>(`/api/study/attempts/${s.data.attemptId}`);
-      if (prev.ok) {
-        answersRef.current = { ...prev.data.answers };
-        setAnswers(answersRef.current);
-      }
-      setArt(a.data);
-      setDeadline(s.data.deadline);
-      setAttemptId(s.data.attemptId);
+      attemptRef.current = r.attemptId;
+      answersRef.current = r.answers;
+      setAnswers(r.answers);
+      setArt(r.art);
+      setDeadline(r.deadline);
+      setAttemptId(r.attemptId);
     })();
   }, [id, router]);
 

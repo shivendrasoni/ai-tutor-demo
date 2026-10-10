@@ -239,4 +239,12 @@ describe('study routes', () => {
     const other = await artifactRoute.GET(req('GET', `/api/study/artifacts/${practiceId}`, otherCookie), ctx(practiceId));
     expect(other.status).toBe(404);
   });
+
+  it('POST attempts returns the saved answers on resume', async () => {
+    const id = await startAttempt();
+    const q = (await withPlatform((tx) => tx.select().from(artifacts).where(eq(artifacts.id, practiceId))))[0]!.content as { questions: { id: string }[] };
+    expect((await answersRoute.PUT(req('PUT', '/x', cookie, { answers: { [q.questions[0]!.id]: 1 } }), ctx(id))).status).toBe(204);
+    const again = await (await startRoute.POST(req('POST', '/x', cookie), ctx(practiceId))).json();
+    expect(again).toMatchObject({ attemptId: id, answers: { [q.questions[0]!.id]: 1 } });
+  });
 });

@@ -70,6 +70,14 @@ describe('startAttempt', () => {
     expect(b).toEqual(a);
     expect(await withPlatform((tx) => tx.select().from(attempts))).toHaveLength(1);
   });
+  it('returns the attempt\'s saved answers on resume and an empty map for a new attempt', async () => {
+    const a = await startAttempt(student, practiceId);
+    expect(a.answers).toEqual({});
+    await saveAnswers(student, a.attemptId, { q0: 1, q6: 'draft' });
+    const b = await startAttempt(student, practiceId);
+    expect(b.attemptId).toBe(a.attemptId);
+    expect(b.answers).toEqual({ q0: 1, q6: 'draft' });
+  });
   it('a new attempt is allowed once the previous one is submitted', async () => {
     const a = await start();
     await submitAttempt(student, a);

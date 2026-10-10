@@ -7,6 +7,8 @@ import type { Actor } from '@/modules/tenancy/actor';
 import { toArtifactView, questionView, type ArtifactView, type ViewQuestion } from './artifacts';
 import { now } from './clock';
 import { failPendingQuestions, finalizeAttempt } from './finalize';
+import { redactError } from '@/lib/redact';
+import { recoverStuckAttempt } from './grading';
 import { getStudyQueue } from './queue';
 import { buildByChapter, flattenQuestions, scoreMcq, type ByChapter, type Results } from './scoring';
 import type { Sources, StoredQuestion } from './schemas';
@@ -111,7 +113,7 @@ export async function submitAttempt(actor: Actor, attemptId: string): Promise<{ 
   const outcome = await withTenant(scope.schoolId, async (tx) => {
     // The row lock makes a concurrent second submit wait, then see a non-in_progress status.
     const { attempt, artifact } = await loadOwn(tx, actor, attemptId, true);
-    if (attempt.status !== 'in_progress') return { status: attempt.status as 'grading' | 'graded', jobs: [] as string[] };
+    if (attempt.status !== 'in_progress') return { status: attempt.status as 'grading' | 'graded', jobs: [] as string[], already: true };
     assertNotExpired(artifact, attempt);
 
     const answers = (attempt.answers ?? {}) as Answers;
@@ -129,13 +131,15 @@ export async function submitAttempt(actor: Actor, attemptId: string): Promise<{ 
     }
     await tx.update(attempts).set({ status: 'grading', submittedAt: now(), results }).where(eq(attempts.id, attemptId));
     const finalized = await finalizeAttempt(tx, attemptId);
-    return { status: finalized ? ('graded' as const) : ('grading' as const), jobs };
+    return { status: finalized ? ('graded' as const) : ('grading' as const), jobs, already: false };
   });
 
+  if (outcome.already && outcome.status === 'grading') await recoverStuckAttempt(scope.schoolId, attemptId);
   if (outcome.jobs.length > 0) {
     try {
       await getStudyQueue().enqueueGrade(outcome.jobs.map((questionId) => ({ attemptId, schoolId: scope.schoolId, questionId })));
-    } catch {
+    } catch (e) {
+      console.error('[studytools] grade enqueue failed', redactError(e));
       // Nothing will grade these questions: score them 0 for review so the attempt still finalizes.
       await failPendingQuestions(scope.schoolId, attemptId);
       return { status: 'graded' };
@@ -171,7 +175,13 @@ function resultsView(r: unknown): Results {
 
 export async function getAttempt(actor: Actor, attemptId: string): Promise<AttemptView> {
   const scope = await studentScope(actor);
-  const { attempt, artifact } = await withTenant(scope.schoolId, (tx) => loadOwn(tx, actor, attemptId, false));
+  const load = () => withTenant(scope.schoolId, (tx) => loadOwn(tx, actor, attemptId, false));
+  let loaded = await load();
+  if (loaded.attempt.status === 'grading') {
+    await recoverStuckAttempt(scope.schoolId, attemptId); // best effort; no-op until the attempt looks stuck
+    loaded = await load();
+  }
+  const { attempt, artifact } = loaded;
   const view: AttemptView = {
     id: attempt.id,
     artifactId: attempt.artifactId,

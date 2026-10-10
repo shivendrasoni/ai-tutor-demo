@@ -23,6 +23,7 @@ export async function finalizeAttempt(tx: Tx, attemptId: string): Promise<boolea
   return true;
 }
 
+const RETRY_DELAY_MS = 200;
 export const NEEDS_REVIEW_FEEDBACK = 'This answer could not be graded automatically. Your teacher can review it.';
 
 /**
@@ -47,6 +48,7 @@ export async function failPendingQuestions(schoolId: string, attemptId: string):
   try {
     await run();
   } catch {
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
     await run();
   }
 }

@@ -2,10 +2,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import { withPlatform, withTenant } from '@/db/client';
 import { artifacts, attempts } from '@/db/schema';
 import { loadActor } from '@/modules/tenancy';
-import { finalizeAttempt, NEEDS_REVIEW_FEEDBACK } from './finalize';
+import { redactError } from '@/lib/redact';
+import { now } from './clock';
+import { failPendingQuestions, finalizeAttempt, NEEDS_REVIEW_FEEDBACK } from './finalize';
 import { callGrader } from './llm';
 import { buildGraderPrompt } from './prompts';
-import type { GradeJob, JobMeta } from './queue';
+import { getStudyQueue, type GradeJob, type JobMeta } from './queue';
 import { flattenQuestions, type QuestionResult, type Results } from './scoring';
 
 /**
@@ -61,4 +63,32 @@ export async function handleGradeJob(job: { data: GradeJob } & Partial<JobMeta>)
     return storeResult(job.data, { score: 0, maxScore: q.marks, feedback: NEEDS_REVIEW_FEEDBACK, needsReview: true });
   }
   await storeResult(job.data, { score: graded.score, maxScore: q.marks, feedback: graded.feedback });
+}
+
+export const STUCK_AFTER_MS = 10 * 60_000;
+
+/**
+ * Recovery for an attempt left `grading` (lost jobs, a worker that died on its last attempt, an outage during submit).
+ * Past STUCK_AFTER_MS it re-enqueues a grade job for every subjective question without a result (duplicates are harmless:
+ * the job is a no-op on an existing result); if that enqueue fails it zeroes them for review. Best effort: never throws.
+ */
+export async function recoverStuckAttempt(schoolId: string, attemptId: string): Promise<void> {
+  try {
+    const pending = await withTenant(schoolId, async (tx) => {
+      const [a] = await tx.select().from(attempts).where(and(eq(attempts.id, attemptId), eq(attempts.schoolId, schoolId)));
+      if (!a || a.status !== 'grading' || !a.submittedAt || now().getTime() - a.submittedAt.getTime() < STUCK_AFTER_MS) return [];
+      const [art] = await tx.select({ content: artifacts.content }).from(artifacts).where(eq(artifacts.id, a.artifactId));
+      const results = (a.results ?? {}) as Results;
+      return flattenQuestions(art?.content).filter((q) => q.type !== 'mcq' && !results[q.id]).map((q) => q.id);
+    });
+    if (pending.length === 0) return;
+    try {
+      await getStudyQueue().enqueueGrade(pending.map((questionId) => ({ attemptId, schoolId, questionId })));
+    } catch (e) {
+      console.error('[studytools] recovery enqueue failed', redactError(e));
+      await failPendingQuestions(schoolId, attemptId);
+    }
+  } catch (e) {
+    console.error('[studytools] recoverStuckAttempt failed', redactError(e));
+  }
 }

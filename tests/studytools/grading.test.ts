@@ -2,9 +2,11 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { withPlatform, withTenant } from '@/db/client';
 import { attempts } from '@/db/schema';
+import { setNow } from '@/modules/studytools/clock';
+import { registerStudyToolsWorkers } from '@/modules/studytools/queue';
 import { getAttempt, saveAnswers, startAttempt, submitAttempt } from '@/modules/studytools/attempts';
 import { failPendingQuestions, finalizeAttempt } from '@/modules/studytools/finalize';
-import { handleGradeJob } from '@/modules/studytools/grading';
+import { handleGradeJob, STUCK_AFTER_MS } from '@/modules/studytools/grading';
 import { seedSkills } from '@/modules/tutor';
 import { STUDY_SKILLS } from '@/modules/tutor/skills-study';
 import type { Actor } from '@/modules/tenancy/actor';
@@ -39,6 +41,7 @@ beforeAll(async () => {
   ).id;
 });
 afterEach(async () => {
+  setNow(null);
   resetStudyMocks();
   vi.restoreAllMocks();
   await withPlatform((tx) => tx.delete(attempts));
@@ -173,5 +176,63 @@ describe('failure paths', () => {
     expect(await submitAttempt(student, id)).toEqual({ status: 'graded' });
     const r = (await withPlatform((tx) => tx.select().from(attempts).where(eq(attempts.id, id))))[0]!.results as Record<string, unknown>;
     expect(r.s0).toMatchObject({ needsReview: true });
+  });
+});
+
+describe('recovery of stuck attempts', () => {
+  const later = async (ms: number) => {
+    const at = (await row()).submittedAt!.getTime() + ms;
+    setNow(() => new Date(at));
+  };
+
+  it('older than 10 minutes: getAttempt re-enqueues only questions without a result', async () => {
+    useMockModels({ standard: mockModel([{ score: 1, feedback: 'f' }]) });
+    await handleGradeJob(job(0)); // s0 graded
+    rec.current.grade.length = 0;
+    await later(STUCK_AFTER_MS + 1);
+    expect((await getAttempt(student, attemptId)).status).toBe('grading');
+    expect(rec.current.grade).toEqual([{ attemptId, schoolId: seed.a.schoolId, questionId: 'l0' }]);
+  });
+
+  it('younger than 10 minutes: no-op', async () => {
+    rec.current.grade.length = 0;
+    await later(STUCK_AFTER_MS - 1);
+    await getAttempt(student, attemptId);
+    await submitAttempt(student, attemptId);
+    expect(rec.current.grade).toHaveLength(0);
+  });
+
+  it('resubmit of a stuck attempt also recovers', async () => {
+    rec.current.grade.length = 0;
+    await later(STUCK_AFTER_MS + 1);
+    expect(await submitAttempt(student, attemptId)).toEqual({ status: 'grading' });
+    expect(rec.current.grade.map((j) => j.questionId).sort()).toEqual(['l0', 's0']);
+  });
+
+  it('enqueue failing during recovery zeroes the pending questions and the attempt becomes graded', async () => {
+    rec.current.grade.length = 0;
+    await later(STUCK_AFTER_MS + 1);
+    rec.current.failNext = new Error('queue down');
+    const v = await getAttempt(student, attemptId);
+    expect(v.status).toBe('graded');
+    expect(await results()).toMatchObject({ s0: { needsReview: true }, l0: { needsReview: true } });
+  });
+});
+
+describe('registered grade worker', () => {
+  const handlerFor = async () => {
+    const calls: any[][] = [];
+    await registerStudyToolsWorkers({ createQueue: async () => {}, work: async (...a: any[]) => void calls.push(a) } as any);
+    return calls.find((c) => c[0] === 'studytools.grade')![2] as (jobs: unknown[]) => Promise<void>;
+  };
+
+  it('rethrows on a non-final attempt and writes a needsReview zero on the final one', async () => {
+    useMockModels({ standard: mockModel([new Error('provider down')]) });
+    const handler = await handlerFor();
+    const data = rec.current.grade[0]!;
+    await expect(handler([{ data, retryCount: 0, retryLimit: 2 }])).rejects.toThrow();
+    expect((await results()).s0).toBeUndefined();
+    await expect(handler([{ data, retryCount: 2, retryLimit: 2 }])).resolves.toBeUndefined();
+    expect((await results()).s0).toMatchObject({ score: 0, needsReview: true });
   });
 });

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import type { ContentItemRow, IngestStatus } from '@/modules/content';
+// Direct import (not the module index) so the client bundle does not pull in server code.
+import { STUCK_INGEST_AFTER_MS } from '@/modules/content/stuck';
 import styles from '../staff.module.css';
 
 type Props = { initialItems: ContentItemRow[]; toggleBranchId: string | null };
@@ -15,9 +17,22 @@ const LABEL: Record<IngestStatus, string> = {
 };
 const SCOPE: Record<string, string> = { school: 'Whole school', branch: 'Branch', section: 'Section' };
 
+/**
+ * Queued/processing with no status change (`updatedAt`, the same timestamp `retryIngest` checks) for over 15 min:
+ * Retry is offered. A live job cannot be known client-side, so the server may still refuse (see `retryErrorMessage`).
+ */
+export const isStuckCandidate = (i: Pick<ContentItemRow, 'status' | 'updatedAt'>, now = Date.now()) =>
+  (i.status === 'queued' || i.status === 'processing') && now - new Date(i.updatedAt).getTime() > STUCK_INGEST_AFTER_MS;
+
+const RETRY_FAILED = 'Could not retry. Please try again.';
+/** The server's own message for a refused retry (e.g. a job is still live), else a generic one. */
+export function retryErrorMessage(body: unknown): string {
+  const message = (body as { error?: { message?: unknown } } | null)?.error?.message;
+  return typeof message === 'string' && message.trim() ? message : RETRY_FAILED;
+}
 const inFlight = (items: ContentItemRow[]) => items.some((i) => i.status === 'queued' || i.status === 'processing');
 
-async function post(path: string, body: unknown): Promise<boolean> {
+async function post(path: string, body: unknown, onError?: (res: Response) => Promise<void>): Promise<boolean> {
   try {
     const res = await fetch(path, {
       method: 'POST',
@@ -25,6 +40,7 @@ async function post(path: string, body: unknown): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (!res.ok) await onError?.(res);
     return res.ok;
   } catch {
     return false;
@@ -62,16 +78,30 @@ export default function ContentList({ initialItems, toggleBranchId }: Props) {
     if (res.ok) setItems((await res.json()) as ContentItemRow[]);
   }
 
+  let serverMessage = '';
+
   async function act(id: string, fn: () => Promise<boolean>, failure: string) {
     setBusyId(id);
     setError('');
+    serverMessage = '';
     const ok = await fn();
     if (ok) await refresh().catch(() => undefined);
-    else setError(failure);
+    else {
+      setError(serverMessage || failure);
+      if (serverMessage) await refresh().catch(() => undefined); // the item's state may have moved on
+    }
     setBusyId(null);
   }
 
-  const retry = (id: string) => act(id, () => post(`/api/content/${id}/retry`, {}), 'Could not retry. Please try again.');
+  const retry = (id: string) =>
+    act(
+      id,
+      () =>
+        post(`/api/content/${id}/retry`, {}, async (res) => {
+          serverMessage = retryErrorMessage(await res.json().catch(() => null));
+        }),
+      RETRY_FAILED,
+    );
   const toggle = (item: ContentItemRow, excluded: boolean) =>
     act(
       item.id,
@@ -115,7 +145,7 @@ export default function ContentList({ initialItems, toggleBranchId }: Props) {
                 <p className={styles.meta}>OCR skipped on {item.ocrSkippedPages} pages</p>
               )}
               <div className={styles.actions}>
-                {item.status === 'failed' && (
+                {(item.status === 'failed' || isStuckCandidate(item)) && (
                   <button type="button" className={styles.secondary} disabled={busy} onClick={() => retry(item.id)}>
                     Retry
                   </button>

@@ -86,3 +86,40 @@ test('root and guards route by role', async ({ page }) => {
   await page.goto('/teacher');
   await expect(page).toHaveURL(/\/login/);
 });
+
+test('school admin sets up a section and a teacher; the teacher logs in and sees the class on /teacher', async ({ page, browser }) => {
+  await login(page, world.schoolAdmin);
+  await expect(page).toHaveURL(/\/school$/);
+
+  const sectionForm = page.getByRole('form', { name: 'Add a section' });
+  await sectionForm.getByLabel('Grade').selectOption('9');
+  await sectionForm.getByLabel('Section name').fill('9-Z');
+  await sectionForm.getByRole('button', { name: 'Add section' }).click();
+  await expect(sectionForm.getByRole('status')).toHaveText('Section added.');
+
+  const teacherForm = page.getByRole('form', { name: 'Create a teacher account' });
+  await teacherForm.getByLabel('Teacher name').fill('Setup Teacher');
+  await teacherForm.getByLabel('Teacher username').fill('setup.teacher');
+  await teacherForm.getByLabel('Teacher password').fill('setup-teacher-pass-1');
+  await teacherForm.getByRole('button', { name: 'Create teacher' }).click();
+  await expect(teacherForm.getByRole('status')).toContainText('Teacher account created');
+  await expect(page.getByText('setup-teacher-pass-1')).toHaveCount(0); // the password is never echoed
+
+  // router.refresh() brings the new teacher and section into the assign form.
+  const assignForm = page.getByRole('form', { name: 'Assign a teacher' });
+  await assignForm.getByLabel('Teacher').selectOption({ label: 'Setup Teacher (setup.teacher, Branch A)' });
+  await assignForm.getByLabel('Section').selectOption({ label: '9 9-Z' });
+  await assignForm.getByLabel('Subject').selectOption({ label: 'Mathematics' });
+  await assignForm.getByRole('button', { name: 'Assign' }).click();
+  await expect(assignForm.getByRole('status')).toHaveText('Teacher assigned.');
+
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const teacher = await ctx.newPage();
+    await login(teacher, { username: 'setup.teacher', password: 'setup-teacher-pass-1' });
+    await expect(teacher).toHaveURL(/\/teacher/);
+    await expect(teacher.getByText('9-Z · Mathematics')).toBeVisible();
+  } finally {
+    await ctx.close();
+  }
+});

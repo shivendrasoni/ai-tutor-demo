@@ -7,6 +7,10 @@
  *   create-plan           --name <n> --interval monthly|annual --price-minor <int> [--currency INR]
  *   create-staff          --school <schoolId> [--branch <branchId>] --role school_admin|branch_admin|teacher
  *                         --username <u> --password <p> --name <n>
+ *   create-section        --branch <branchId> --grade <5-12> --name <n>
+ *   create-subject        --school <schoolId> --name <n>
+ *   assign-teacher        --teacher <teacher username> --section <sectionId> --subject <subjectId>
+ *   list-school           --school <schoolId>   (branches, sections, subjects and teachers, with ids)
  *   reset-password        --username <student username> [--password <p>] [--as <platform admin username>]
  *                         (admin-initiated student password reset; revokes the student's sessions)
  *   pending
@@ -24,14 +28,16 @@ import './env';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { closeDb, withPlatform } from '@/db/client';
-import { users } from '@/db/schema';
+import { branches, schools, sections, users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import { redactError } from '@/lib/redact';
+import { isUuid } from '@/lib/uuid';
 import { createPlan, listPendingSubscriptions, recordPayment, resetStudentPassword } from '@/modules/enrollment';
 import {
-  createBranch, createSchool, createStaffUser, hashPassword, loadActor, normalizeUsername,
+  assignTeacher, createBranch, createSchool, createSection, createStaffUser, createSubject, hashPassword, listSubjects, listTeachers,
+  loadActor, normalizeUsername, requirePlatform,
   validateCredentials, withUsernameTakenHandling, type Actor, type StaffRole,
 } from '@/modules/tenancy';
 import { assertUsernameFree } from '@/modules/tenancy/auth/credentials';
@@ -147,6 +153,63 @@ const commands: Record<string, Command> = {
         name: req(f, 'name'),
       };
       return createStaffUser(await actor(), input);
+    },
+  },
+  'create-section': {
+    flags: ['branch', 'grade', 'name'],
+    run: async (f, actor) => {
+      const input = { branchId: req(f, 'branch'), grade: int(f, 'grade'), name: req(f, 'name') };
+      const { id } = await createSection(await actor(), input);
+      return { sectionId: id };
+    },
+  },
+  'create-subject': {
+    flags: ['school', 'name'],
+    run: async (f, actor) => {
+      const input = { schoolId: req(f, 'school'), name: req(f, 'name') };
+      const { id } = await createSubject(await actor(), input);
+      return { subjectId: id };
+    },
+  },
+  'assign-teacher': {
+    flags: ['teacher', 'section', 'subject'],
+    run: async (f, actor) => {
+      const username = normalizeUsername(req(f, 'teacher'));
+      const input = { sectionId: req(f, 'section'), subjectId: req(f, 'subject') };
+      const a = await actor();
+      const [t] = await withPlatform((tx) => tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1));
+      if (!t) throw new DomainError('NOT_FOUND', 'Teacher not found');
+      await assignTeacher(a, { teacherId: t.id, ...input });
+      return { teacher: username, ...input };
+    },
+  },
+  'list-school': {
+    flags: ['school'],
+    run: async (f, actor) => {
+      const schoolId = req(f, 'school');
+      const a = await actor();
+      requirePlatform(a);
+      if (!isUuid(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
+      const [school, branchRows, sectionRows] = await withPlatform(async (tx) => {
+        const [s] = await tx.select({ id: schools.id, name: schools.name, board: schools.board }).from(schools).where(eq(schools.id, schoolId));
+        if (!s) throw new DomainError('NOT_FOUND', 'School not found');
+        return [
+          s,
+          await tx.select({ id: branches.id, name: branches.name }).from(branches).where(eq(branches.schoolId, schoolId)).orderBy(asc(branches.name), asc(branches.id)),
+          await tx.select({ id: sections.id, branchId: sections.branchId, grade: sections.grade, name: sections.name })
+            .from(sections).where(eq(sections.schoolId, schoolId)).orderBy(asc(sections.grade), asc(sections.name)),
+        ] as const;
+      });
+      const [subjectRows, teachers] = await Promise.all([listSubjects(a, schoolId), listTeachers(a, schoolId)]);
+      return {
+        school,
+        branches: branchRows.map((b) => ({
+          ...b,
+          sections: sectionRows.filter((s) => s.branchId === b.id).map(({ id, grade, name }) => ({ id, grade, name })),
+        })),
+        subjects: subjectRows,
+        teachers,
+      };
     },
   },
   'reset-password': {

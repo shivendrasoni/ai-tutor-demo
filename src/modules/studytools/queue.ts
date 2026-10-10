@@ -1,5 +1,5 @@
 import type { PgBoss } from 'pg-boss';
-import { ensureQueue, getSendBoss } from '@/lib/boss';
+import { ensureQueue, getSendBoss, sendDeduped, type QueueSpec } from '@/lib/boss';
 import { handleGenerateJob } from './generate';
 import { handleGradeJob } from './grading';
 
@@ -14,6 +14,11 @@ export const GENERATE_CONCURRENCY = 2;
 // `stately` makes `singletonKey` real: at most one queued (created/retry) and one active job per key.
 const JOB_OPTIONS = { retryLimit: 2, retryBackoff: true } as const;
 const QUEUE_OPTIONS = { ...JOB_OPTIONS, policy: 'stately' } as const;
+/** Handed to the worker's startup migration (the only place a queue policy may change). */
+export const STUDY_QUEUE_SPECS: QueueSpec[] = [
+  { name: GENERATE_QUEUE, options: { ...QUEUE_OPTIONS } },
+  { name: GRADE_QUEUE, options: { ...QUEUE_OPTIONS } },
+];
 const gradeKey = (d: GradeJob): string => `${d.attemptId}:${d.questionId}`;
 
 /** Enqueue seam for study jobs. Production uses PgBossQueue; tests install a recording queue. */
@@ -46,7 +51,7 @@ export class PgBossQueue implements StudyQueue {
   }
 
   async enqueueGenerate(d: GenerateJob): Promise<void> {
-    await (await this.get()).send(GENERATE_QUEUE, d, { ...JOB_OPTIONS, singletonKey: d.artifactId });
+    await sendDeduped(await this.get(), GENERATE_QUEUE, d, { ...JOB_OPTIONS, singletonKey: d.artifactId });
   }
 
   async enqueueGrade(d: GradeJob[]): Promise<void> {
@@ -77,7 +82,7 @@ export function getStudyQueue(): StudyQueue {
 }
 
 /** Registers both study workers on an already started boss (the ingest worker's). Installed pg-boss 12 `includeMetadata`. */
-export async function registerStudyToolsWorkers(boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'deleteQueue' | 'work'>): Promise<void> {
+export async function registerStudyToolsWorkers(boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'work'>): Promise<void> {
   await ensureQueue(boss, GENERATE_QUEUE, { ...QUEUE_OPTIONS });
   await ensureQueue(boss, GRADE_QUEUE, { ...QUEUE_OPTIONS });
   await boss.work<GradeJob, void, { includeMetadata: true; localConcurrency: number }>(

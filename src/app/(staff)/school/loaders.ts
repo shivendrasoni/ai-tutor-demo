@@ -1,7 +1,7 @@
 import { DomainError } from '@/lib/errors';
 import { enrollmentSummary, listBranches } from '@/modules/analytics';
 import { listStudents } from '@/modules/enrollment';
-import type { Actor, StudentStatus } from '@/modules/tenancy';
+import { listSubjects, listTeachers, type Actor, type StudentStatus } from '@/modules/tenancy';
 
 export const STUDENT_STATUSES: StudentStatus[] = ['pending_payment', 'active', 'lapsed', 'removed'];
 
@@ -40,4 +40,10 @@ export async function loadSchoolDashboard(actor: Actor, q: SchoolQuery) {
     { pending: 0, active: 0, lapsed: 0, removed: 0 },
   );
   return { summary, students, branches, totals, canFilterBranch: actor.roles.includes('school_admin') };
+}
+
+/** Data for the Setup forms. Scope (a branch_admin's branch) comes from the services; subjects are managed by school_admin only. */
+export async function loadSchoolSetup(actor: Actor) {
+  const [branches, subjects, teachers] = await Promise.all([listBranches(actor), listSubjects(actor), listTeachers(actor)]);
+  return { branches, subjects, teachers, canManageSubjects: actor.roles.includes('school_admin') };
 }

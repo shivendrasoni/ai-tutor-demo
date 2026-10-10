@@ -1,5 +1,5 @@
 import { PgBoss } from 'pg-boss';
-import { ensureQueue, getSendBoss } from '@/lib/boss';
+import { ensureQueue, getSendBoss, hasPendingJob, migrateQueuePolicies, sendDeduped, type QueueSpec } from '@/lib/boss';
 import { getDeps } from './deps';
 import { runIngest, type IngestDeps, type IngestJob } from './ingest';
 
@@ -10,12 +10,17 @@ const INGEST_QUEUE_POLICY = { ...INGEST_QUEUE_OPTIONS, policy: 'stately' } as co
 
 export interface IngestQueue {
   enqueue(job: IngestJob): Promise<void>;
+  /** True while a job for this item is queued/retrying/active (used to tell a stuck item from a running one). */
+  hasLiveJob(contentItemId: string): Promise<boolean>;
 }
 
 export class InMemoryQueue implements IngestQueue {
   readonly jobs: IngestJob[] = [];
   async enqueue(job: IngestJob): Promise<void> {
     this.jobs.push(job);
+  }
+  async hasLiveJob(contentItemId: string): Promise<boolean> {
+    return this.jobs.some((j) => j.contentItemId === contentItemId);
   }
 }
 
@@ -26,10 +31,13 @@ export function createBoss(): PgBoss {
   return boss;
 }
 
-export async function startBoss(): Promise<PgBoss> {
+export const INGEST_QUEUE_SPEC: QueueSpec = { name: INGEST_QUEUE, options: { ...INGEST_QUEUE_POLICY } };
+
+/** Worker boss. The worker is the only process that may migrate a queue's policy (`extraQueues`: other modules' queues). */
+export async function startBoss(extraQueues: QueueSpec[] = []): Promise<PgBoss> {
   const boss = createBoss();
   await boss.start();
-  await ensureQueue(boss, INGEST_QUEUE, { ...INGEST_QUEUE_POLICY });
+  await migrateQueuePolicies(boss, [INGEST_QUEUE_SPEC, ...extraQueues]);
   return boss;
 }
 
@@ -55,7 +63,11 @@ export class PgBossQueue implements IngestQueue {
       if (this.boss === starting) this.boss = null;
       throw err;
     }
-    await boss.send(INGEST_QUEUE, job, { singletonKey: job.contentItemId });
+    await sendDeduped(boss, INGEST_QUEUE, job, { singletonKey: job.contentItemId });
+  }
+
+  async hasLiveJob(contentItemId: string): Promise<boolean> {
+    return hasPendingJob(await (this.boss ??= this.starter()), INGEST_QUEUE, contentItemId);
   }
 
   async stop(): Promise<void> {
@@ -69,9 +81,12 @@ export class PgBossQueue implements IngestQueue {
 export const isFinalAttempt = (job: { retryCount: number; retryLimit: number }) =>
   job.retryCount >= job.retryLimit;
 
-export async function startWorker(deps?: IngestDeps): Promise<{ stop(): Promise<void>; boss: PgBoss }> {
+export async function startWorker(
+  deps?: IngestDeps,
+  extraQueues: QueueSpec[] = [],
+): Promise<{ stop(): Promise<void>; boss: PgBoss }> {
   const d = deps ?? getDeps();
-  const boss = await startBoss();
+  const boss = await startBoss(extraQueues);
   // Installed pg-boss 12 names: `includeMetadata` work option; `retryCount` / `retryLimit` on the job.
   await boss.work<IngestJob, void, { includeMetadata: true }>(
     INGEST_QUEUE,

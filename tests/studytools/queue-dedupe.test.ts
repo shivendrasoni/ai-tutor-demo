@@ -44,3 +44,21 @@ describe('stately queues dedupe by singletonKey', () => {
     expect(await pending(INGEST_QUEUE, contentItemId)).toBe(1);
   });
 });
+
+describe('a null send (stately dedupe) is only "already queued" when a pending job exists', () => {
+  const fake = (rows: { n: number }[], sent: unknown) =>
+    ({ send: async () => sent, getDb: () => ({ executeSql: async () => ({ rows }) }) }) as never;
+
+  it('ingest: null send with no pending job throws; with one it resolves', async () => {
+    const job = { contentItemId: randomUUID(), schoolId: randomUUID() };
+    await expect(new IngestPgBossQueue(async () => fake([{ n: 0 }], null)).enqueue(job)).rejects.toThrow(/not queued/i);
+    await expect(new IngestPgBossQueue(async () => fake([{ n: 1 }], null)).enqueue(job)).resolves.toBeUndefined();
+    await expect(new IngestPgBossQueue(async () => fake([{ n: 0 }], 'job-id')).enqueue(job)).resolves.toBeUndefined();
+  });
+
+  it('generate: null send with no pending job throws; with one it resolves', async () => {
+    const d = { artifactId: randomUUID(), schoolId: randomUUID() };
+    await expect(new PgBossQueue(async () => fake([{ n: 0 }], null)).enqueueGenerate(d)).rejects.toThrow(/not queued/i);
+    await expect(new PgBossQueue(async () => fake([{ n: 1 }], null)).enqueueGenerate(d)).resolves.toBeUndefined();
+  });
+});

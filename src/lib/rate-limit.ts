@@ -60,10 +60,41 @@ export async function purgeRateLimits(cutoff: Date): Promise<number> {
   return rows.length;
 }
 
-/** Client IP: first hop of x-forwarded-for, else 'unknown'. */
+/**
+ * Number of trusted reverse proxies in front of the app (env TRUSTED_PROXY_HOPS, default 1). Each trusted proxy
+ * appends the address it saw to `x-forwarded-for`, so the client is the Nth entry from the right; anything to the
+ * left is client-controlled and spoofable. 0 means no proxy is trusted: the header is ignored.
+ */
+function trustedProxyHops(): number {
+  const raw = process.env.TRUSTED_PROXY_HOPS;
+  if (raw === undefined || raw.trim() === '') return 1;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 1;
+}
+
+let warnedNoForwardedFor = false;
+/** Test seam: re-arms the once-per-process missing-header warning. */
+export function resetClientIpWarning(): void {
+  warnedNoForwardedFor = false;
+}
+
+/** Client IP from x-forwarded-for per TRUSTED_PROXY_HOPS (a header shorter than the hop count yields its left-most entry), else 'unknown'. */
 export function clientIp(req: Request): string {
-  const first = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return first || 'unknown';
+  const hops = trustedProxyHops();
+  if (hops === 0) return 'unknown';
+  const parts = (req.headers.get('x-forwarded-for') ?? '').split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    // A trusted proxy is configured but sent no x-forwarded-for: likely a misconfiguration (every client then shares one
+    // rate-limit bucket). Once per process; never logs header values.
+    if (!warnedNoForwardedFor) {
+      warnedNoForwardedFor = true;
+      console.warn(
+        `[rate-limit] TRUSTED_PROXY_HOPS=${hops} but a request had no x-forwarded-for header; client IPs are 'unknown' and share one rate-limit bucket. Check the proxy setup or set TRUSTED_PROXY_HOPS=0.`,
+      );
+    }
+    return 'unknown';
+  }
+  return parts[Math.max(0, parts.length - hops)];
 }
 
 function envInt(name: string, fallback: number): number {
@@ -77,7 +108,7 @@ function envInt(name: string, fallback: number): number {
  */
 export const limits = {
   loginPerUser: () => envInt('RATE_LIMIT_LOGIN_USER', 10), // failed attempts / 15 min
-  loginPerIp: () => envInt('RATE_LIMIT_LOGIN_IP', 50), // failed attempts / 15 min
+  loginPerIp: () => envInt('RATE_LIMIT_LOGIN_IP', 100), // failed attempts / 15 min
   joinLookupPerIp: () => envInt('RATE_LIMIT_JOIN_LOOKUP', 60), // / 15 min
   joinSubmitPerIp: () => envInt('RATE_LIMIT_JOIN_SUBMIT', 20), // / hour
 };

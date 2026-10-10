@@ -28,6 +28,8 @@ export const contentItems = pgTable(
     ocrSkippedPages: integer('ocr_skipped_pages').notNull().default(0),
     sizeBytes: integer('size_bytes').notNull(),
     createdAt: createdAt(),
+    /** Last status change or re-queue; the stuck-ingest check measures from here, not from upload. */
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdateFn(() => new Date()),
   },
   (t) => [
     check('content_items_grade_check', sql`${t.grade} between 5 and 12`),

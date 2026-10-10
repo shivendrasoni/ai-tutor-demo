@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes } from 'react';
 import styles from '../public.module.css';
 import { apiFetch, formatPrice, intervalLabel, type Plan } from './api';
+import { usernameCheckOutcome, type UsernameCheck } from './username';
 
 /** Loads active plans once; `error` is set when they couldn't be fetched. */
 export function usePlans(): { plans: Plan[] | null; error: boolean } {
@@ -50,8 +51,6 @@ export function PlanPicker({
   );
 }
 
-type Check = { username: string; available: boolean; suggestions: string[] };
-
 /**
  * Username input with an availability check on blur. `suggestions` is controlled by the parent so that
  * a USERNAME_TAKEN response from submit can show them too; clicking one fills the field.
@@ -76,24 +75,11 @@ export function UsernameField({
       onSuggestions([]);
       return;
     }
-    const r = await apiFetch<Check>(`/api/join/username?u=${encodeURIComponent(u)}`);
+    const r = await apiFetch<UsernameCheck>(`/api/join/username?u=${encodeURIComponent(u)}`);
     if (latest.current !== u) return; // a newer check superseded this one
-    if (!r.ok) {
-      onSuggestions([]);
-      setHint(
-        r.error.code === 'INVALID_USERNAME'
-          ? 'Usernames must be 4–32 characters and use only a–z, 0–9, _ or .'
-          : '',
-      );
-      return;
-    }
-    if (r.data.available) {
-      onSuggestions([]);
-      setHint(`${r.data.username} is available.`);
-    } else {
-      onSuggestions(r.data.suggestions);
-      setHint(`${r.data.username} is taken.`);
-    }
+    const outcome = usernameCheckOutcome(r);
+    onSuggestions(outcome.suggestions);
+    setHint(outcome.hint);
   }
 
   function pick(s: string) {

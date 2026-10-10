@@ -11,6 +11,7 @@ import {
 import { DomainError } from '@/lib/errors';
 import { assertGrade, canManageBranch, canManageSchool, runAs, type Actor } from '@/modules/tenancy';
 import { getDeps } from './deps';
+import { STUCK_INGEST_AFTER_MS } from './stuck';
 
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
@@ -37,6 +38,8 @@ export type ContentItemRow = {
   sizeBytes: number;
   uploadedBy: string;
   createdAt: Date;
+  /** Last status change or re-queue; what the stuck-ingest check measures from. */
+  updatedAt: Date;
   excludedBranchIds: string[];
 };
 
@@ -233,12 +236,19 @@ export async function deleteContent(actor: Actor, itemId: string): Promise<void>
   }
 }
 
+export { STUCK_INGEST_AFTER_MS };
+
+/** Failed items can always be retried; queued/processing ones only when stuck (no status change for 15 min and no live job). */
 export async function retryIngest(actor: Actor, itemId: string): Promise<void> {
   const job = await runAs(actor, async (tx) => {
     const item = await loadItem(tx, itemId);
     await assertCanManageTarget(tx, actor, targetOf(item));
     if (item.ingestStatus !== 'failed') {
-      throw new DomainError('VALIDATION', 'Only failed items can be retried', { field: 'status' });
+      const inFlight = item.ingestStatus === 'queued' || item.ingestStatus === 'processing';
+      const old = Date.now() - item.updatedAt.getTime() > STUCK_INGEST_AFTER_MS;
+      if (!inFlight || !old || (await getDeps().queue.hasLiveJob(item.id))) {
+        throw new DomainError('VALIDATION', 'Only failed or stuck items can be retried', { field: 'status' });
+      }
     }
     await tx.update(contentItems).set({ ingestStatus: 'queued', ingestError: null }).where(eq(contentItems.id, item.id));
     return { contentItemId: item.id, schoolId: item.schoolId };
@@ -353,6 +363,7 @@ export async function listContent(
       sizeBytes: item.sizeBytes,
       uploadedBy: item.uploadedBy,
       createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
       excludedBranchIds: byItem.get(item.id) ?? [],
     }));
   });

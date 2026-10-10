@@ -1,7 +1,8 @@
 import { asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { branches, sections, studentProfiles } from '@/db/schema';
+import { branches, sections, studentProfiles, subscriptions } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
+import { effectiveStatusSql } from '@/modules/enrollment';
 import type { Actor } from '@/modules/tenancy/actor';
 import { runAs } from '@/modules/tenancy/authz';
 
@@ -17,7 +18,7 @@ export type EnrollmentRow = {
 
 const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
 
-export async function enrollmentSummary(actor: Actor, args: { schoolId?: string }): Promise<EnrollmentRow[]> {
+export async function enrollmentSummary(actor: Actor, args: { schoolId?: string }, now: Date = new Date()): Promise<EnrollmentRow[]> {
   const requested = args?.schoolId;
   let branchId: string | null = null;
   if (actor.isPlatformAdmin) {
@@ -36,8 +37,8 @@ export async function enrollmentSummary(actor: Actor, args: { schoolId?: string 
   }
   const schoolId = actor.isPlatformAdmin ? (requested as string) : (actor.schoolId as string);
 
-  const count = (status: string) =>
-    sql<number>`(count(*) filter (where ${studentProfiles.status} = ${status}))::int`;
+  const effective = effectiveStatusSql(now);
+  const count = (status: string) => sql<number>`(count(*) filter (where ${effective} = ${status}))::int`;
   return runAs(actor, (tx) =>
     tx
       .select({
@@ -51,6 +52,7 @@ export async function enrollmentSummary(actor: Actor, args: { schoolId?: string 
       })
       .from(studentProfiles)
       .innerJoin(branches, eq(branches.id, studentProfiles.branchId))
+      .leftJoin(subscriptions, eq(subscriptions.studentId, studentProfiles.userId))
       .where(
         branchId
           ? sql`${studentProfiles.schoolId} = ${schoolId} and ${studentProfiles.branchId} = ${branchId}`

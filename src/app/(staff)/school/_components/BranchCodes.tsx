@@ -1,0 +1,59 @@
+'use client';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { Badge, Card, DataTable } from '@/app/ui/components';
+import type { BranchListing } from '@/modules/analytics';
+
+export default function BranchCodes({ branches }: { branches: BranchListing[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function act(id: string, action: 'rotate' | 'enable' | 'disable') {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/school/branches/${id}/code`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error?.message ?? 'Could not update the signup code');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('Could not update the signup code');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card title="Branch signup codes">
+      <DataTable
+        rows={branches}
+        empty="No branches yet"
+        columns={[
+          { header: 'Branch', cell: (b) => b.name },
+          { header: 'Code', cell: (b) => <code>{b.signupCode}</code> },
+          { header: 'Status', cell: (b) => <Badge tone={b.signupCodeEnabled ? 'ok' : 'muted'}>{b.signupCodeEnabled ? 'enabled' : 'disabled'}</Badge> },
+          {
+            header: 'Actions',
+            cell: (b) => (
+              <>
+                <button type="button" disabled={busyId === b.branchId} onClick={() => act(b.branchId, 'rotate')}>Rotate</button>{' '}
+                <button type="button" disabled={busyId === b.branchId} onClick={() => act(b.branchId, b.signupCodeEnabled ? 'disable' : 'enable')}>
+                  {b.signupCodeEnabled ? 'Disable' : 'Enable'}
+                </button>
+              </>
+            ),
+          },
+        ]}
+      />
+      {error ? <p role="alert">{error}</p> : null}
+    </Card>
+  );
+}

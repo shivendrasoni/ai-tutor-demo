@@ -1,0 +1,83 @@
+/* Shared dashboard UI. Mobile-first; widens gently on larger screens. */
+
+.shell {
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: #111827;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.title { font-size: 1.5rem; line-height: 1.25; margin: 0 0 12px; }
+
+.nav { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 20px; }
+.nav a { color: #1d4ed8; min-height: 44px; display: inline-flex; align-items: center; }
+
+.card {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #c4c9d4;
+  border-radius: 8px;
+}
+.cardTitle { font-size: 1.05rem; margin: 0 0 12px; }
+
+.stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+.statValue { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.statLabel { font-size: 0.9rem; color: #4b5563; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ok { color: #14532d; background: #dcfce7; }
+.warn { color: #78350f; background: #fef3c7; }
+.bad { color: #991b1b; background: #fee2e2; }
+.muted { color: #374151; background: #e5e7eb; }
+
+.empty { margin: 0; padding: 16px 0; color: #4b5563; text-align: center; }
+
+/* Tables scroll horizontally inside their card on narrow screens. */
+.tableWrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table { width: 100%; min-width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.table th, .table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+.table th { font-weight: 600; color: #374151; background: #f9fafb; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; }
+.label { font-weight: 600; font-size: 0.95rem; }
+.field input, .field select, .field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 16px; /* prevents iOS zoom on focus */
+  color: inherit;
+  background: #fff;
+  border: 1px solid #8a92a3;
+  border-radius: 8px;
+}
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 1px;
+}
+
+/* Responsive grid for cards/stats: one column, two from 720px. */
+.grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 720px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+}

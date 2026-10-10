@@ -6,6 +6,7 @@ Multi-tenant AI tutor for school students (classes 5–12). The specs live in `d
 - The tools are not on the default PATH. Start every shell command with:
   `export PATH=/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH`
 - Node 22, pnpm, and the Docker daemon (Docker Desktop) are available. Postgres runs only via `docker compose up -d` (image `pgvector/pgvector:pg16`).
+- macOS 'Maintenance Sleep' suspends the machine for ~15 min mid-run even while a command is active, which blows wall-clock Playwright/Vitest timeouts (a 15-17 min run with one 'Question 1 of 4' or ingest timeout failure is this, not a bug). Run long suites as `caffeinate -s -i -m pnpm e2e` (or `pnpm vitest run`); confirm with `pmset -g log | grep ' Sleep '`.
 - No LLM, embedding, or TypeSafe API keys are configured. Every test must use the fakes (`FakeEmbedder`, `FakeDecider`, AI SDK mock language models). Code paths that call real providers are enabled only when their env vars are set, and they are never required by `pnpm test`.
 
 ## Conventions

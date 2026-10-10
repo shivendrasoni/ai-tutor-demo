@@ -213,7 +213,8 @@ describe('runTurn', () => {
     expect(model.calls).toBe(0);
     const a = await lastAssistant();
     expect(a).toMatchObject({ model: null, content: OFF_TOPIC, flagged: false, tokensIn: 0 });
-    expect(a.decisions).toMatchObject({ fixedReply: 'off_topic' });
+    expect(a.decisions).toMatchObject({ fixedReply: 'off_topic', tier: null });
+    expect(a.modelTier).toBeNull();
   });
 
   it('fixed reply unsafe: exact copy, flagged with reason unsafe, no model call', async () => {
@@ -223,7 +224,9 @@ describe('runTurn', () => {
     const ev = await collect(runTurn(student, convId, 'bad'));
     expect((ev[1] as { data: { text: string } }).data.text).toBe(UNSAFE);
     expect(model.calls).toBe(0);
-    expect(await lastAssistant()).toMatchObject({ content: UNSAFE, flagged: true, flagReason: 'unsafe', model: null });
+    const u = await lastAssistant();
+    expect(u).toMatchObject({ content: UNSAFE, flagged: true, flagReason: 'unsafe', model: null, modelTier: null });
+    expect(u.decisions).toMatchObject({ fixedReply: 'unsafe', tier: null });
   });
 
   it('needs_review flags the assistant message with decider_review but still answers', async () => {
@@ -397,6 +400,99 @@ describe('runTurn', () => {
     expect(out.some((e) => e.type === 'done')).toBe(false);
     expect((await lastAssistant()).decisions).toMatchObject({ aborted: true });
     expect(await usageTokens()).toBeGreaterThan(0);
+  });
+
+  it('FINAL 1a: abort before the first delta meters estimated usage and stores no assistant row', async () => {
+    const runner: AgentRunner = {
+      async *run(input: RunInput): AsyncGenerator<RunEvent> {
+        await new Promise<void>((r) => input.signal!.addEventListener('abort', () => r(), { once: true }));
+      },
+    };
+    useTutorFakes({ runner });
+    await newConv();
+    const ac = new AbortController();
+    const out: TurnEvent[] = [];
+    for await (const e of runTurn(student, convId, 'q', { signal: ac.signal })) {
+      out.push(e);
+      if (e.type === 'meta') setTimeout(() => ac.abort(), 20);
+    }
+    expect(out.map((e) => e.type)).toEqual(['meta']);
+    expect((await getMessages(student, convId)).map((m) => m.role)).toEqual(['user']);
+    expect(await usageTokens()).toBeGreaterThan(0);
+  });
+
+  it('FINAL 1b: provider failing twice -> TUTOR_BUSY and estimated usage is recorded, no assistant row', async () => {
+    useTutorFakes({ model: scriptedModel([{ error: new Error('x') }, { error: new Error('y') }]) });
+    await newConv();
+    const ev = await collect(runTurn(student, convId, 'q'));
+    expect(ev.at(-1)).toMatchObject({ type: 'error', data: { code: 'TUTOR_BUSY' } });
+    expect((await getMessages(student, convId)).map((m) => m.role)).toEqual(['user']);
+    expect(await usageTokens()).toBeGreaterThan(0);
+  });
+
+  it('FINAL 7: a stream that finishes with empty text stores no row, records usage, yields TUTOR_BUSY', async () => {
+    const runner: AgentRunner = {
+      async *run(): AsyncGenerator<RunEvent> {
+        yield { type: 'finish', usage: { tokensIn: 30, tokensOut: 0 } };
+      },
+    };
+    useTutorFakes({ runner });
+    await newConv();
+    const ev = await collect(runTurn(student, convId, 'q'));
+    expect(ev.map((e) => e.type)).toEqual(['meta', 'error']);
+    expect(ev.at(-1)).toEqual({ type: 'error', data: { code: 'TUTOR_BUSY', message: BUSY } });
+    expect((await getMessages(student, convId)).map((m) => m.role)).toEqual(['user']);
+    expect(await usageTokens()).toBe(30);
+  });
+
+  describe('FINAL 2: a persistence failure never escapes the finally block', () => {
+    // The runner deletes the conversation mid-stream, so the assistant insert violates its FK.
+    const dropConversation = () =>
+      withPlatform(async (tx) => {
+        await tx.delete(conversations).where(eq(conversations.id, convId));
+      });
+    const runnerThatDrops: AgentRunner = {
+      async *run(): AsyncGenerator<RunEvent> {
+        yield { type: 'delta', text: 'partial answer' };
+        await dropConversation();
+        yield { type: 'delta', text: ' more' };
+        yield { type: 'finish', usage: { tokensIn: 10, tokensOut: 5 } };
+      },
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    beforeEach(() => {
+      unhandled.length = 0;
+      process.on('unhandledRejection', onUnhandled);
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      process.off('unhandledRejection', onUnhandled);
+      vi.restoreAllMocks();
+    });
+
+    it('normal path: error TUTOR_BUSY instead of done, no throw, usage still recorded', async () => {
+      useTutorFakes({ runner: runnerThatDrops });
+      await newConv();
+      const ev = await collect(runTurn(student, convId, 'q'));
+      expect(ev.at(-1)).toEqual({ type: 'error', data: { code: 'TUTOR_BUSY', message: BUSY } });
+      expect(ev.some((e) => e.type === 'done')).toBe(false);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+      expect(await usageTokens()).toBeGreaterThan(0);
+    });
+
+    it('return() path: resolves without rejecting', async () => {
+      useTutorFakes({ runner: runnerThatDrops });
+      await newConv();
+      const it = runTurn(student, convId, 'q');
+      await it.next(); // meta
+      await it.next(); // first delta (conversation is dropped when the runner resumes)
+      await dropConversation();
+      await expect(it.return(undefined)).resolves.toMatchObject({ done: true });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    });
   });
 
   it('REVIEW FOCUS 4: two concurrent turns in one conversation both complete', async () => {

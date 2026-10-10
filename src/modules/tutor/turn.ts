@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { conversations, messages, schools, skills } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
+import { redactError } from '@/lib/redact';
 import { studentScope } from '@/modules/content';
 import type { Actor } from '@/modules/tenancy/actor';
 import { runAs } from '@/modules/tenancy/authz';
@@ -211,6 +212,9 @@ export async function* runTurn(
       }
     });
 
+  const recordUsageOnly = (tokens: number, cost: number | null) =>
+    runAs(actor, (tx) => recordUsage(tx, { schoolId: scope.schoolId, studentId: actor.userId, tokens, cost, now: deps.now() }));
+
   // 5. Fixed replies: no model call.
   if (route.fixedReply) {
     const reply = FIXED_REPLIES[route.fixedReply];
@@ -218,7 +222,7 @@ export async function* runTurn(
       content: reply,
       citations: [],
       retrievedChunkIds: [],
-      decisions: { ...baseDecisions, filterFallback: false, aborted: false },
+      decisions: { ...baseDecisions, tier: null, filterFallback: false, aborted: false },
       model: null,
       tokensIn: 0,
       tokensOut: 0,
@@ -281,6 +285,8 @@ export async function* runTurn(
   let failed = false;
   let finished = false; // reached the end of the stream normally
   let abortedOut = false;
+  let providerInvoked = false;
+  let persistFailed = false;
   let citationsOut: Citation[] = [];
   let usageOut = { tokensIn: 0, tokensOut: 0 };
   try {
@@ -290,6 +296,7 @@ export async function* runTurn(
     };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        providerInvoked = true;
         for await (const ev of deps.runner.run({
           instructions,
           model,
@@ -307,6 +314,12 @@ export async function* runTurn(
           } else usage = ev.usage;
         }
         finished = !internal.signal.aborted;
+        if (finished && full.length === 0) {
+          // The provider answered with nothing: not a usable answer and not storable as an empty row.
+          console.error('[tutor] runner finished with empty text');
+          finished = false;
+          failed = true;
+        }
         break;
       } catch (e) {
         if (internal.signal.aborted) break; // client abort, not a provider failure
@@ -324,28 +337,45 @@ export async function* runTurn(
     opts.signal?.removeEventListener('abort', onAbort);
     const aborted = !finished && !failed;
     internal.abort();
-    if (full.length > 0 || finished) {
-      const tokensIn = usage?.tokensIn ?? estimateTokens(instructions.length + history.reduce((n, m) => n + m.content.length, 0) + userText.length);
-      const tokensOut = usage?.tokensOut ?? estimateTokens(full.length);
-      citationsOut = parseCitations(full, tracker);
-      usageOut = { tokensIn: Math.ceil(tokensIn), tokensOut: Math.ceil(tokensOut) };
-      await persistAssistant({
-        content: full,
-        citations: citationsOut,
-        retrievedChunkIds: tracker.allChunkIds(),
-        decisions: { ...baseDecisions, filterFallback: tracker.filterFallback, aborted },
-        model: spec,
-        tokensIn: usageOut.tokensIn,
-        tokensOut: usageOut.tokensOut,
-        cost: computeCost(spec, usageOut.tokensIn, usageOut.tokensOut),
-        flagged: route.needsReview,
-        flagReason: 'decider_review',
-      });
+    if (providerInvoked) {
+      // The provider was called, so tokens were spent: meter them (estimated if never reported), row or no row.
+      const tokensIn = Math.ceil(
+        usage?.tokensIn ?? estimateTokens(instructions.length + history.reduce((n, m) => n + m.content.length, 0) + userText.length),
+      );
+      const tokensOut = Math.ceil(usage?.tokensOut ?? estimateTokens(full.length));
+      usageOut = { tokensIn, tokensOut };
+      const cost = computeCost(spec, tokensIn, tokensOut);
+      try {
+        if (full.length > 0) {
+          citationsOut = parseCitations(full, tracker);
+          await persistAssistant({
+            content: full,
+            citations: citationsOut,
+            retrievedChunkIds: tracker.allChunkIds(),
+            decisions: { ...baseDecisions, filterFallback: tracker.filterFallback, aborted },
+            model: spec,
+            tokensIn,
+            tokensOut,
+            cost,
+            flagged: route.needsReview,
+            flagReason: 'decider_review',
+          });
+        } else {
+          await recordUsageOnly(tokensIn + tokensOut, cost);
+        }
+      } catch (e) {
+        persistFailed = true;
+        console.error('[tutor] persisting assistant message failed', redactError(e));
+        // The row is lost but the spend is not: meter it on its own.
+        await recordUsageOnly(tokensIn + tokensOut, cost).catch((e2) =>
+          console.error('[tutor] recording usage failed', redactError(e2)),
+        );
+      }
     }
     abortedOut = aborted;
   }
 
-  if (failed) {
+  if (failed || (persistFailed && !abortedOut)) {
     yield { type: 'error', data: { code: 'TUTOR_BUSY', message: BUSY_MESSAGE } };
     return;
   }

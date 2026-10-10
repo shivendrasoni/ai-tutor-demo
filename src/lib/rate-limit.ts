@@ -60,10 +60,25 @@ export async function purgeRateLimits(cutoff: Date): Promise<number> {
   return rows.length;
 }
 
-/** Client IP: first hop of x-forwarded-for, else 'unknown'. */
+/**
+ * Number of trusted reverse proxies in front of the app (env TRUSTED_PROXY_HOPS, default 1). Each trusted proxy
+ * appends the address it saw to `x-forwarded-for`, so the client is the Nth entry from the right; anything to the
+ * left is client-controlled and spoofable. 0 means no proxy is trusted: the header is ignored.
+ */
+function trustedProxyHops(): number {
+  const raw = process.env.TRUSTED_PROXY_HOPS;
+  if (raw === undefined || raw.trim() === '') return 1;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 1;
+}
+
+/** Client IP from x-forwarded-for per TRUSTED_PROXY_HOPS (a header shorter than the hop count yields its left-most entry), else 'unknown'. */
 export function clientIp(req: Request): string {
-  const first = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return first || 'unknown';
+  const hops = trustedProxyHops();
+  if (hops === 0) return 'unknown';
+  const parts = (req.headers.get('x-forwarded-for') ?? '').split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return 'unknown';
+  return parts[Math.max(0, parts.length - hops)];
 }
 
 function envInt(name: string, fallback: number): number {

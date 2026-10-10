@@ -15,8 +15,10 @@ const Body = z.object({
 
 export const POST = handle(async (req: Request) => {
   const { username, password } = await readJson(req, Body);
-  // Failed attempts are throttled per client IP and per username; a login that gets past the password check
-  // is refunded below. A blocked request never reaches the (expensive) password verification.
+  // Attempts are throttled per client IP and per username. Only the per-username counter is refunded for a login
+  // that gets past the password check; the per-IP counter is never refunded on success, so an attacker cannot
+  // reset it by interleaving logins to an account they own. A blocked request never reaches the (expensive)
+  // password verification.
   const ipKey = `login:ip:${clientIp(req)}`;
   const userKey = `login:user:${normalizeUsername(username)}`;
   const ip = await hit(ipKey, limits.loginPerIp(), WINDOW_15_MIN);
@@ -36,7 +38,7 @@ export const POST = handle(async (req: Request) => {
     }
     throw err;
   }
-  await Promise.all([refund(ipKey, WINDOW_15_MIN), refund(userKey, WINDOW_15_MIN)]);
+  await refund(userKey, WINDOW_15_MIN);
   const { token, actor } = result;
   const isStudent = !actor.isPlatformAdmin && actor.roles.includes('student');
   const home = homeFor(actor, isStudent ? (await studentStatus(actor)).status : undefined);

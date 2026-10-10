@@ -56,9 +56,20 @@ describe('login throttling', () => {
     expect((await login(studentName, 'wrong-pass', '10.0.2.99')).status).toBe(429);
   });
 
-  it('successful logins do not count toward the limit', async () => {
-    for (let i = 0; i < 15; i++) expect((await login(studentName, SEED_PASSWORD)).status).toBe(200);
-    expect((await login(studentName, 'wrong-pass')).status).toBe(401);
+  it('successful logins do not count toward the per-username limit', async () => {
+    for (let i = 0; i < 15; i++) expect((await login(studentName, SEED_PASSWORD, `10.0.4.${i}`)).status).toBe(200);
+    expect((await login(studentName, 'wrong-pass', '10.0.4.99')).status).toBe(401);
+  });
+
+  it('successes are not refunded to the per-IP key: failures across usernames with interleaved successes still trip it', async () => {
+    // 25 failures + 25 successes from one IP use the 50-attempt budget; the 51st attempt is refused.
+    for (let i = 0; i < 25; i++) {
+      expect((await login(`nobody_${i}`, 'wrong-pass', '10.8.8.8')).status).toBe(401);
+      expect((await login(studentName, SEED_PASSWORD, '10.8.8.8')).status).toBe(200);
+    }
+    verifySpy.mockClear();
+    expect((await login('nobody_x', 'wrong-pass', '10.8.8.8')).status).toBe(429);
+    expect(verifySpy).not.toHaveBeenCalled();
   });
 
   it('50 failed attempts from one IP across usernames → 429; other IPs unaffected', async () => {

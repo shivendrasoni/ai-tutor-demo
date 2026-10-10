@@ -8,7 +8,7 @@ import type { Actor, StudentStatus } from '@/modules/tenancy/actor';
 import { hashPassword, assertPasswordStrength } from '@/modules/tenancy/auth/passwords';
 import { canManageBranch, runAs } from '@/modules/tenancy/authz';
 import { revokeUserSessions } from '@/modules/tenancy/auth/sessions';
-import { isPeriodExpired, lapseExpired } from './lapse';
+import { effectiveStudentStatus } from './lapse';
 
 export type StudentRow = {
   userId: string;
@@ -157,21 +157,15 @@ export async function studentStatus(
   if (!actor.roles.includes('student')) throw new DomainError('FORBIDDEN', 'Students only');
   const [row] = await runAs(actor, (tx) =>
     tx
-      .select({
-        status: studentProfiles.status,
-        planName: plans.name,
-        periodEnd: subscriptions.currentPeriodEnd,
-      })
+      .select({ planName: plans.name, periodEnd: subscriptions.currentPeriodEnd })
       .from(studentProfiles)
       .leftJoin(subscriptions, eq(subscriptions.studentId, studentProfiles.userId))
       .leftJoin(plans, eq(plans.id, subscriptions.planId))
       .where(eq(studentProfiles.userId, actor.userId)),
   );
   if (!row) throw new DomainError('NOT_FOUND', 'Student profile not found');
-  // Read-time lapse: an active student whose period has ended is lapsed even if the daily job has not run.
-  if (row.status === 'active' && isPeriodExpired(row.periodEnd, now)) {
-    await lapseExpired(now, actor.userId);
-    return { status: 'lapsed', planName: row.planName, periodEnd: row.periodEnd };
-  }
-  return row as { status: StudentStatus; planName: string | null; periodEnd: Date | null };
+  // The read-time lapse rule lives in one place (effectiveStudentStatus).
+  const status = await effectiveStudentStatus(actor.userId, now);
+  if (!status) throw new DomainError('NOT_FOUND', 'Student profile not found');
+  return { status, planName: row.planName, periodEnd: row.periodEnd };
 }

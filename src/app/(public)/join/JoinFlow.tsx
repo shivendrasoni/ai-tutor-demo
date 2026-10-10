@@ -5,19 +5,13 @@ import Link from 'next/link';
 import { apiFetch, genericMessage } from '../_lib/api';
 import { PasswordField, TextField, UsernameField } from '../_lib/fields';
 import PlanPicker, { SUCCESS_COPY, type PlanOption } from '../_lib/PlanPicker';
-import { submitError } from '../_lib/submit-error';
+import { codeCopy, submitError } from '../_lib/submit-error';
 import styles from '../public.module.css';
 
 type Section = { id: string; grade: number; name: string };
 type Branch = { schoolName: string; branchName: string; sections: Section[] };
 
 const GRADES = [5, 6, 7, 8, 9, 10, 11, 12];
-
-function codeError(code: string, fallback: string): string {
-  if (code === 'INVALID_CODE') return "That signup code isn't valid. Check it and try again.";
-  if (code === 'CODE_DISABLED') return 'Signups with this code are turned off. Ask your school.';
-  return fallback;
-}
 
 export default function JoinFlow() {
   const [step, setStep] = useState<'code' | 'form' | 'done'>('code');
@@ -54,7 +48,7 @@ export default function JoinFlow() {
     ]);
     setBusy(false);
     if (!b.ok) {
-      setError(codeError(b.error.code, genericMessage(b.error)));
+      setError(codeCopy(b.error.code) ?? genericMessage(b.error));
       return;
     }
     if (!p.ok) {

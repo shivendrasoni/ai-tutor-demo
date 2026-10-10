@@ -71,6 +71,11 @@ export const sessions = pgTable('sessions', {
   createdAt: createdAt(),
 });
 
+/**
+ * Fixed-window rate-limit counters. GLOBAL on purpose: no `school_id`, so not a tenant table (not in `tenantTables`,
+ * no RLS), because the keys are about the caller (e.g. `login:ip:1.2.3.4`), not a school. Written only through
+ * `withPlatform` (see src/lib/rate-limit.ts).
+ */
 export const rateLimits = pgTable(
   'rate_limits',
   {

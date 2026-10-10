@@ -38,7 +38,8 @@ function validateFilter(filter: StudentFilter): void {
 }
 
 /** Students visible to the actor: whole school for a school_admin, own branch for a branch_admin, one school for a platform admin. */
-export async function listStudents(actor: Actor, filter: StudentFilter = {}, now: Date = new Date()): Promise<StudentRow[]> {
+export async function listStudents(actor: Actor, rawFilter: StudentFilter | null = {}, now: Date = new Date()): Promise<StudentRow[]> {
+  const filter = rawFilter ?? {};
   validateFilter(filter);
   const { grade, status } = filter;
   let schoolId: string;
@@ -150,7 +151,6 @@ export async function resetStudentPassword(actor: Actor, studentUserId: string, 
       .where(eq(studentProfiles.userId, studentUserId));
     if (!row) throw notFound();
     if (!canManageBranch(actor, row.schoolId, row.branchId)) throw new DomainError('FORBIDDEN');
-    assertPasswordStrength(newPassword);
 
     // Lock the user, then re-read state so a concurrent removal or signup is seen.
     await tx.execute(sql`select id from users where id = ${studentUserId} for update`);
@@ -162,8 +162,9 @@ export async function resetStudentPassword(actor: Actor, studentUserId: string, 
     if (!fresh) throw notFound();
     if (fresh.status === 'removed') throw new DomainError('STUDENT_REMOVED', 'Student has been removed');
     if (!fresh.username || !fresh.passwordHash) {
-      throw validation('This student has not signed up yet; send them an invite instead');
+      throw new DomainError('VALIDATION', 'This student has not signed up yet; send them an invite link instead', { reason: 'not_signed_up' });
     }
+    assertPasswordStrength(newPassword);
 
     await tx.update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, studentUserId));
     await revokeUserSessions(tx, studentUserId);

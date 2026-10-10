@@ -5,6 +5,7 @@ import { asc, eq } from 'drizzle-orm';
 import { closeDb, withPlatform } from '@/db/client';
 import { branches, schools, sections, users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
+import { redactError } from '@/lib/redact';
 import { isUuid } from '@/lib/uuid';
 import {
   assertUsernameFree,
@@ -18,6 +19,7 @@ import {
   listSubjects,
   listTeachers,
   normalizeUsername,
+  requirePlatform,
   validateCredentials,
   withUsernameTakenHandling,
   type Actor,
@@ -127,7 +129,7 @@ const commands: Record<string, Command> = {
           return u.id;
         }),
       );
-      return { userId };
+      return { userId, username };
     },
   },
   pending: {
@@ -193,6 +195,7 @@ const commands: Record<string, Command> = {
     options: ['school'],
     required: ['school'],
     run: async (v, actor) => {
+      requirePlatform(actor);
       const schoolId = v.school!;
       if (!isUuid(schoolId)) throw new DomainError('NOT_FOUND', 'School not found');
       const { school, bs, ss } = await withPlatform(async (tx) => {
@@ -226,14 +229,6 @@ const commands: Record<string, Command> = {
   },
 };
 
-/** Never echoes SQL text, parameters or hashes: only the leading error label and a Postgres code if present. */
-function redact(err: unknown): string {
-  const e = err as { code?: unknown; cause?: { code?: unknown } } | null;
-  const code = typeof e?.code === 'string' ? e.code : typeof e?.cause?.code === 'string' ? e.cause.code : undefined;
-  const label = err instanceof Error ? err.message.split('\n')[0].split(':')[0].trim().slice(0, 80) : 'unknown error';
-  return `Unexpected error: ${label}${code ? ` (code ${code})` : ''}`;
-}
-
 /** Runs one CLI invocation. Exit codes: 0 ok, 1 domain/unexpected error, 2 usage error. */
 export async function run(argv: string[], io: Io): Promise<number> {
   const [name, ...rest] = argv;
@@ -251,7 +246,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     } catch (e) {
       throw new UsageError(e instanceof Error ? e.message : 'Invalid arguments');
     }
-    const missing = cmd.required.filter((r) => values[r] === undefined);
+    const missing = cmd.required.filter((r) => values[r] === undefined || values[r] === '');
     if (missing.length > 0) throw new UsageError(`Missing required option(s): ${missing.map((m) => `--${m}`).join(', ')}`);
 
     let actor = SYNTHETIC_ACTOR;
@@ -272,7 +267,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
       io.err(`${err.code}: ${err.message}${err.details ? ` ${JSON.stringify(err.details)}` : ''}`);
       return 1;
     }
-    io.err(redact(err));
+    io.err(`Unexpected error: ${JSON.stringify(redactError(err))}`);
     return 1;
   }
 }

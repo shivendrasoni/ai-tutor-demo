@@ -1,6 +1,7 @@
 import './env';
 import { pathToFileURL } from 'node:url';
 import { closeDb } from '@/db/client';
+import { redactError } from '@/lib/redact';
 import { purgeRateLimits } from '@/lib/rate-limit';
 import { lapseExpired } from '@/modules/enrollment';
 import { purgeExpiredSessions } from '@/modules/tenancy';
@@ -22,9 +23,7 @@ async function main(): Promise<number> {
     console.log(JSON.stringify(await runLapse(new Date())));
     return 0;
   } catch (err) {
-    const code = (err as { code?: unknown; cause?: { code?: unknown } })?.code ?? (err as { cause?: { code?: unknown } })?.cause?.code;
-    const name = err instanceof Error ? err.message.split('\n')[0].split(':')[0].slice(0, 80) : 'unknown error';
-    console.error(`lapse failed: ${name}${typeof code === 'string' ? ` (code ${code})` : ''}`);
+    console.error('lapse failed:', redactError(err));
     return 1;
   } finally {
     await closeDb();

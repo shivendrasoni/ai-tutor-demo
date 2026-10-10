@@ -51,6 +51,14 @@ This is merged on `main` with 182 tests passing. Later plans must use these **re
   - `sessionCookie(token)`, `clearSessionCookie()`, `redactError`
   - Multipart uploads need their own size handling. `readJson`'s 100 KB cap applies to JSON only.
 
+- **Malformed-id rule (pinned by `tests/isolation/error-classes.test.ts`):**
+  - A malformed or unknown id that selects the **target resource** is `NOT_FOUND`: path ids, assign/create targets (`removeStudent`, `createSection` branch, `assignTeacher` ids, `recordPayment` subscription), and `listTeachers`/`listSubjects` `schoolId` for a platform admin.
+  - An id that is a **form choice** (`planId`, `sectionId` in signup, invite and manual add) or a **list filter** param (`listStudents` `schoolId`/`branchId`/`grade`) is `VALIDATION`.
+  - A non-platform caller's `schoolId` is taken from the actor; a foreign `schoolId` filter on `listStudents` is `FORBIDDEN`.
+- `redactError` (`src/lib/redact.ts`, re-exported by `http.ts`) returns `{ name, message?, code?, stack?, cause? }`: the first message line with SQL, params and argon2 hashes stripped, the driver code, stack frames only (no header, top level only), and the same for `cause`. The DB pools log through it.
+- `src/db/client.ts` fails fast (`DATABASE_URL_APP` / `DATABASE_URL_ADMIN` not set), caches the pools on `globalThis.__dbPools` (Next dev HMR), sets `max: 10`, `idleTimeoutMillis: 30_000`, `connectionTimeoutMillis: 5_000`, and logs idle-client `error` events.
+- `recordPayment` trims and upper-cases `currency` before validation (`"inr"` is accepted).
+
 ## App and tests
 - Pages live under `src/app/(public)/{join,invite,login,status}`, with `_lib/`, `layout.tsx`, and `public.module.css`. API routes are under `src/app/api/{auth,invite,join,me,plans,platform,school}`.
 - `tests/helpers/db.ts`:

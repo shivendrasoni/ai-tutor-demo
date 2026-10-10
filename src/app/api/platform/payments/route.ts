@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const Body = z.object({
   subscriptionId: z.string().max(64),
   amountMinor: z.number().int().positive().max(2147483647),
-  currency: z.string().max(3).default('INR'),
+  currency: z.string().max(16).default('INR'),
   externalRef: z.string().max(200).optional(),
   paidAt: z.iso.datetime({ offset: true }).transform((s) => new Date(s)),
 });

@@ -72,6 +72,8 @@ export const payments = pgTable(
   },
   (t) => [
     check('payments_method_check', sql`${t.method} in ('manual_link','gateway')`),
+    // Idempotency: one payment per (subscription, external reference). Partial so only payments that carry a
+    // reference take part in the uniqueness check: payments without one (manual entries) must never collide.
     uniqueIndex('payments_subscription_external_ref_unique')
       .on(t.subscriptionId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),

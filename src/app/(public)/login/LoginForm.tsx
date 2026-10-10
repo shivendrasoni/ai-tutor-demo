@@ -24,6 +24,7 @@ export default function LoginForm() {
       return;
     }
     setBusy(false);
+    setPassword('');
     setError(
       r.error.code === 'INVALID_CREDENTIALS'
         ? 'Incorrect username or password.'

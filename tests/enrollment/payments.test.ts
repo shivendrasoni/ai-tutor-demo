@@ -132,10 +132,17 @@ describe('recordPayment', () => {
     expect(await codeOf(pay('2027-01-31T00:00:00Z', {}, 'nope'))).toBe('NOT_FOUND');
   });
 
+  it('normalizes currency (trim, upper-case) before validating', async () => {
+    await pay('2027-01-31T00:00:00Z', { currency: ' inr ' });
+    const [p] = await withPlatform((tx) => tx.select().from(payments));
+    expect(p.currency).toBe('INR');
+  });
+
   it('validates amount, currency, and paidAt', async () => {
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { amountMinor: 0 }))).toBe('VALIDATION');
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { amountMinor: 1.5 }))).toBe('VALIDATION');
-    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'inr' }))).toBe('VALIDATION');
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'rupee' }))).toBe('VALIDATION');
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { currency: 'IN' }))).toBe('VALIDATION');
     expect(await codeOf(pay('2027-01-31T00:00:00Z', { paidAt: new Date('x') }))).toBe('VALIDATION');
     expect(await paymentCount()).toBe(0);
   });

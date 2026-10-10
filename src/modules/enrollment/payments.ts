@@ -39,7 +39,9 @@ export async function recordPayment(
 ): Promise<{ periodStart: Date; periodEnd: Date }> {
   requirePlatform(actor);
   if (!isUuid(input.subscriptionId)) throw new DomainError('NOT_FOUND', 'Subscription not found');
-  const parsed = PaymentSchema.safeParse(input);
+  // Accept "inr" / " INR ": normalize before the strict ISO-4217-shape check.
+  const normalized = { ...input, currency: typeof input.currency === 'string' ? input.currency.trim().toUpperCase() : input.currency };
+  const parsed = PaymentSchema.safeParse(normalized);
   if (!parsed.success) {
     throw new DomainError('VALIDATION', 'Invalid payment', {
       issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),

@@ -62,7 +62,6 @@ export async function resolveActor(token: string | undefined): Promise<Actor | n
       .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())))
       .limit(1);
     if (!s) return null;
-    if (await isRemovedStudent(tx, s.userId)) return null;
     return loadActor(tx, s.userId);
   });
 }

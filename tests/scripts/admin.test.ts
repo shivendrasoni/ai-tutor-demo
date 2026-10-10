@@ -22,11 +22,19 @@ async function cli(...argv: string[]) {
 }
 
 describe('scripts/admin run()', () => {
+  it('rejects an empty required flag with a usage error', async () => {
+    const r = await cli('create-school', '--name', '', '--board', 'CBSE');
+    expect(r.code).toBe(2);
+    expect(r.err.join('\n')).toContain('--name');
+  });
+
+
   it('wires every command end-to-end and never prints passwords', async () => {
     const pa = await cli('create-platform-admin', '--username', 'Ops_Test', '--password', 'change-me-now', '--name', 'Ops');
     expect(pa.code).toBe(0);
     const { userId: opsId } = pa.json();
     const [ops] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, opsId)));
+    expect(pa.json().username).toBe('ops_test');
     expect(ops.username).toBe('ops_test');
     expect(ops.isPlatformAdmin).toBe(true);
     expect(ops.passwordHash).toMatch(/^\$argon2id\$/);

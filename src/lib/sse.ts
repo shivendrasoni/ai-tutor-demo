@@ -1,5 +1,5 @@
 import { DomainError } from '@/lib/errors';
-import { json, statusFor } from '@/lib/http';
+import { json, redactError, statusFor } from '@/lib/http';
 import type { TurnEvent } from '@/modules/tutor';
 
 const encoder = new TextEncoder();
@@ -34,7 +34,8 @@ export async function toSse(events: AsyncIterable<TurnEvent>, signal?: AbortSign
         pending = null;
         if (r.done) return controller.close();
         controller.enqueue(frame(r.value));
-      } catch {
+      } catch (err) {
+        console.error('Mid-stream SSE failure', redactError(err));
         // Mid-stream failure: the status line is already sent, so report it as an SSE error event.
         controller.enqueue(
           frame({ type: 'error', data: { code: 'TUTOR_BUSY', message: 'The tutor is busy right now. Please try again in a moment.' } }),

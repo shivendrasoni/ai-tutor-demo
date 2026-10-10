@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { studentProfiles, users } from '@/db/schema';
 import { createSession } from '@/modules/tenancy';
-import { removeStudent } from '@/modules/enrollment';
+import { recordPayment, removeStudent } from '@/modules/enrollment';
 import { DomainError } from '@/lib/errors';
 import { handle } from '@/lib/http';
 import { resetDb, SEED_PASSWORD, seedTwoSchools, type Seed } from '../helpers/db';
@@ -107,6 +107,18 @@ describe('auth', () => {
       req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.a.schoolAdmin.userId), password: SEED_PASSWORD } }),
     );
     expect((await sa.json()).home).toBe('/school');
+  });
+
+  it('login home: an active student whose period expired (no cron run) -> /status; /me/status says lapsed', async () => {
+    await recordPayment(seed.platform, {
+      subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt: new Date(Date.now() - 40 * 86_400_000),
+    });
+    const res = await loginRoute.POST(
+      req('POST', '/api/auth/login', { body: { username: await usernameOf(seed.a.studentId), password: SEED_PASSWORD } }),
+    );
+    expect((await res.json()).home).toBe('/status');
+    const st = await meStatusRoute.GET(req('GET', '/api/me/status', { cookie: res.headers.get('set-cookie')!.split(';')[0] }));
+    expect((await st.json()).status).toBe('lapsed');
   });
 
   it('bad credentials → 401 INVALID_CREDENTIALS, body never echoes the password', async () => {

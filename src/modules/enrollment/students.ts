@@ -7,6 +7,7 @@ import { DomainError } from '@/lib/errors';
 import type { Actor, StudentStatus } from '@/modules/tenancy/actor';
 import { canManageBranch, runAs } from '@/modules/tenancy/authz';
 import { revokeUserSessions } from '@/modules/tenancy/auth/sessions';
+import { isPeriodExpired, lapseExpired } from './lapse';
 
 export type StudentRow = {
   userId: string;
@@ -117,6 +118,7 @@ export async function removeStudent(actor: Actor, studentUserId: string): Promis
 
 export async function studentStatus(
   actor: Actor,
+  now: Date = new Date(),
 ): Promise<{ status: StudentStatus; planName: string | null; periodEnd: Date | null }> {
   if (!actor.roles.includes('student')) throw new DomainError('FORBIDDEN', 'Students only');
   const [row] = await runAs(actor, (tx) =>
@@ -132,5 +134,10 @@ export async function studentStatus(
       .where(eq(studentProfiles.userId, actor.userId)),
   );
   if (!row) throw new DomainError('NOT_FOUND', 'Student profile not found');
+  // Read-time lapse: an active student whose period has ended is lapsed even if the daily job has not run.
+  if (row.status === 'active' && isPeriodExpired(row.periodEnd, now)) {
+    await lapseExpired(now, actor.userId);
+    return { status: 'lapsed', planName: row.planName, periodEnd: row.periodEnd };
+  }
   return row as { status: StudentStatus; planName: string | null; periodEnd: Date | null };
 }

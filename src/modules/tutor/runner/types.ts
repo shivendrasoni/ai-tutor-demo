@@ -1,4 +1,3 @@
-// Placeholder types (Task 2); Tasks 6 and 7 complete this file (and add MastraRunner in mastra.ts).
 import type { ZodType } from 'zod';
 import type { TutorModel } from '../models/registry';
 

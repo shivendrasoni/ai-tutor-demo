@@ -2,6 +2,7 @@ import { listVisibleChapters, listVisibleSubjects, searchChunks } from '@/module
 import { selectDecider } from './decider/select';
 import type { Decider } from './decider/types';
 import { ModelRegistry } from './models/registry';
+import { MastraRunner } from './runner/mastra';
 import type { AgentRunner } from './runner/types';
 
 export type TutorDeps = {
@@ -25,10 +26,7 @@ const factories: Factories = {
   registry: () => new ModelRegistry(),
   decider: () => selection().decider,
   deciderProvider: () => selection().provider,
-  // Task 7 replaces this with new MastraRunner().
-  runner: () => {
-    throw new Error('not configured');
-  },
+  runner: () => new MastraRunner(),
   content: () => ({ search: searchChunks, subjects: listVisibleSubjects, chapters: listVisibleChapters }),
   now: () => () => new Date(),
 };

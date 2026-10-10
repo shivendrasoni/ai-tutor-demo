@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { closeDb, withPlatform, withTenant } from '@/db/client';
-import { schools, studentProfiles, subjects } from '@/db/schema';
+import { plans, schools, studentProfiles, subjects } from '@/db/schema';
 import { appDbRaw, resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
 let seed: Seed;
@@ -31,5 +31,12 @@ describe('row-level security', () => {
   it('platform sees all schools', async () => {
     const rows = await withPlatform((tx) => tx.select().from(schools));
     expect(rows).toHaveLength(2);
+  });
+  it('plans are read-only for app_user (update and delete are permission denied)', async () => {
+    const rows = await withTenant(seed.a.schoolId, (tx) => tx.select().from(plans));
+    expect(rows.length).toBeGreaterThan(0);
+    const denied = { cause: { code: '42501', message: expect.stringMatching(/permission denied/) } };
+    await expect(withTenant(seed.a.schoolId, (tx) => tx.update(plans).set({ name: 'X' }))).rejects.toMatchObject(denied);
+    await expect(withTenant(seed.a.schoolId, (tx) => tx.delete(plans))).rejects.toMatchObject(denied);
   });
 });

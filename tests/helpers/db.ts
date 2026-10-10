@@ -10,6 +10,7 @@ import {
 import { hashPassword } from '@/modules/tenancy/auth/passwords';
 import type { Actor, Role } from '@/modules/tenancy/actor';
 import { generateBranchCode } from '@/modules/tenancy/codes';
+import { withDeadlockRetry } from './retry';
 
 export type SchoolSeed = {
   schoolId: string;
@@ -29,16 +30,19 @@ export type Seed = { platform: Actor; planId: string; a: SchoolSeed; b: SchoolSe
 
 /** Truncates every table in schema public (as owner), so future tables can't survive a reset. */
 export async function resetDb(): Promise<void> {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER });
-  try {
-    const db = drizzle(pool);
-    const res = await db.execute(sql`select tablename from pg_tables where schemaname = 'public'`);
-    // exam_patterns is seeded by a migration (global reference data), so a reset keeps it.
-    const names = res.rows.filter((r) => r.tablename !== 'exam_patterns').map((r) => `"${r.tablename}"`);
-    if (names.length) await db.execute(sql.raw(`truncate table ${names.join(', ')} restart identity cascade`));
-  } finally {
-    await pool.end();
-  }
+  // A request still in flight from a previous spec can deadlock with the truncate, so retry.
+  await withDeadlockRetry(async () => {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, options: '-c lock_timeout=5000' });
+    try {
+      const db = drizzle(pool);
+      const res = await db.execute(sql`select tablename from pg_tables where schemaname = 'public'`);
+      // exam_patterns is seeded by a migration (global reference data), so a reset keeps it.
+      const names = res.rows.filter((r) => r.tablename !== 'exam_patterns').map((r) => `"${r.tablename}"`);
+      if (names.length) await db.execute(sql.raw(`truncate table ${names.join(', ')} restart identity cascade`));
+    } finally {
+      await pool.end();
+    }
+  });
 }
 
 /** Runs one statement on the app pool (app_user) with no tenant setup. */

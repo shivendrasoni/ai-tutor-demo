@@ -2,6 +2,7 @@ import { branches, sections, subjects } from './tenancy';
 import { memberships, teacherAssignments } from './auth';
 import { chunks, contentChapters, contentExclusions, contentItems } from './content';
 import { conversations, messages, usageDaily } from './tutor';
+import { artifacts, attempts } from './studytools';
 import { invites, payments, studentProfiles, subscriptions } from './enrollment';
 
 export * from './tenancy';
@@ -9,8 +10,9 @@ export * from './auth';
 export * from './enrollment';
 export * from './content';
 export * from './tutor';
+export * from './studytools';
 
-/** The 16 RLS-protected tables keyed by a school_id column (schools itself is keyed on id). */
+/** The 18 RLS-protected tables keyed by a school_id column (schools itself is keyed on id). */
 export const tenantTables = [
   branches,
   sections,
@@ -28,4 +30,6 @@ export const tenantTables = [
   conversations,
   messages,
   usageDaily,
+  artifacts,
+  attempts,
 ];

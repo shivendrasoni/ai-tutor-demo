@@ -33,7 +33,8 @@ export async function resetDb(): Promise<void> {
   try {
     const db = drizzle(pool);
     const res = await db.execute(sql`select tablename from pg_tables where schemaname = 'public'`);
-    const names = res.rows.map((r) => `"${r.tablename}"`);
+    // exam_patterns is seeded by a migration (global reference data), so a reset keeps it.
+    const names = res.rows.filter((r) => r.tablename !== 'exam_patterns').map((r) => `"${r.tablename}"`);
     if (names.length) await db.execute(sql.raw(`truncate table ${names.join(', ')} restart identity cascade`));
   } finally {
     await pool.end();

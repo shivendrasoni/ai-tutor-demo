@@ -12,7 +12,9 @@ export type ErrorCode =
   | 'INVITE_INVALID'
   | 'STUDENT_REMOVED'
   | 'BUDGET_EXCEEDED'
-  | 'TUTOR_BUSY';
+  | 'TUTOR_BUSY'
+  | 'GENERATION_LIMIT'
+  | 'ATTEMPT_EXPIRED';
 
 export class DomainError extends Error {
   code: ErrorCode;

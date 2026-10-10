@@ -7,7 +7,7 @@ import { asc, eq, getTableName, sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform, withTenant } from '@/db/client';
 import {
-  branches, chunks, contentChapters, contentExclusions, contentItems, conversations, invites, messages, payments, schools, sections, skills, studentProfiles, subjects, teacherAssignments,
+  artifacts, attempts, branches, chunks, contentChapters, contentExclusions, contentItems, conversations, invites, messages, payments, schools, sections, skills, studentProfiles, subjects, teacherAssignments,
   tenantTables, usageDaily, users,
 } from '@/db/schema';
 import {
@@ -248,7 +248,7 @@ describe('branch-level isolation inside School A', () => {
 });
 
 describe('raw RLS isolation over tenantTables', () => {
-  /** Seeds a payment, an invite and content rows for each school so every tenant table has rows for both. */
+  /** Seeds a payment, an invite, content, tutor and study rows for each school so every tenant table has rows for both. */
   async function seedAllTables() {
     await withPlatform(async (tx) => {
       const [skill] = await tx.insert(skills).values({ key: 'iso', name: 'iso', kind: 'chat', instructions: 'i' }).returning();
@@ -276,6 +276,11 @@ describe('raw RLS isolation over tenantTables', () => {
         const [conv] = await tx.insert(conversations).values({ schoolId: s.schoolId, studentId: s.studentId, skillId: skill.id }).returning();
         await tx.insert(messages).values({ schoolId: s.schoolId, conversationId: conv.id, role: 'user', content: 'hi' });
         await tx.insert(usageDaily).values({ schoolId: s.schoolId, studentId: s.studentId, date: '2026-10-10', tokens: 1 });
+        const [art] = await tx.insert(artifacts).values({
+          schoolId: s.schoolId, studentId: s.studentId, skillId: skill.id, type: 'practice_test', subjectId: s.subjectId,
+          status: 'ready',
+        }).returning();
+        await tx.insert(attempts).values({ schoolId: s.schoolId, artifactId: art.id, studentId: s.studentId, status: 'in_progress' });
       }
     });
   }

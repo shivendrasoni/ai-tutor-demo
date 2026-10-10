@@ -1,9 +1,12 @@
 import { PgBoss } from 'pg-boss';
+import { ensureQueue, getSendBoss } from '@/lib/boss';
 import { getDeps } from './deps';
 import { runIngest, type IngestDeps, type IngestJob } from './ingest';
 
 export const INGEST_QUEUE = 'ingest';
 export const INGEST_QUEUE_OPTIONS = { retryLimit: 3, retryBackoff: true, expireInSeconds: 3600 } as const;
+// `stately` makes the per-item `singletonKey` real: one queued (created/retry) and one active job per content item.
+const INGEST_QUEUE_POLICY = { ...INGEST_QUEUE_OPTIONS, policy: 'stately' } as const;
 
 export interface IngestQueue {
   enqueue(job: IngestJob): Promise<void>;
@@ -26,14 +29,21 @@ export function createBoss(): PgBoss {
 export async function startBoss(): Promise<PgBoss> {
   const boss = createBoss();
   await boss.start();
-  await boss.createQueue(INGEST_QUEUE, { ...INGEST_QUEUE_OPTIONS });
+  await ensureQueue(boss, INGEST_QUEUE, { ...INGEST_QUEUE_POLICY });
+  return boss;
+}
+
+/** Web-process boss: shared, send-only (no supervise/schedule timers), queue ensured on first use. */
+async function startSendBoss(): Promise<PgBoss> {
+  const boss = await getSendBoss();
+  await ensureQueue(boss, INGEST_QUEUE, { ...INGEST_QUEUE_POLICY });
   return boss;
 }
 
 export class PgBossQueue implements IngestQueue {
   private boss: Promise<PgBoss> | null = null;
 
-  constructor(private readonly starter: () => Promise<PgBoss> = startBoss) {}
+  constructor(private readonly starter: () => Promise<PgBoss> = startSendBoss) {}
 
   async enqueue(job: IngestJob): Promise<void> {
     const starting = (this.boss ??= this.starter());

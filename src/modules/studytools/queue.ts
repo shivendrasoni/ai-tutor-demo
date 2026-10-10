@@ -1,4 +1,5 @@
-import { PgBoss } from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
+import { ensureQueue, getSendBoss } from '@/lib/boss';
 import { handleGenerateJob } from './generate';
 import { handleGradeJob } from './grading';
 
@@ -10,7 +11,10 @@ export const GENERATE_QUEUE = 'studytools.generate';
 export const GRADE_QUEUE = 'studytools.grade';
 export const GRADE_CONCURRENCY = 4;
 export const GENERATE_CONCURRENCY = 2;
-const QUEUE_OPTIONS = { retryLimit: 2, retryBackoff: true } as const;
+// `stately` makes `singletonKey` real: at most one queued (created/retry) and one active job per key.
+const JOB_OPTIONS = { retryLimit: 2, retryBackoff: true } as const;
+const QUEUE_OPTIONS = { ...JOB_OPTIONS, policy: 'stately' } as const;
+const gradeKey = (d: GradeJob): string => `${d.attemptId}:${d.questionId}`;
 
 /** Enqueue seam for study jobs. Production uses PgBossQueue; tests install a recording queue. */
 export interface StudyQueue {
@@ -18,13 +22,10 @@ export interface StudyQueue {
   enqueueGrade(d: GradeJob[]): Promise<void>;
 }
 
-/** pg-boss needs DDL rights (it creates the `pgboss` schema), so it connects as the owner. */
 async function startStudyBoss(): Promise<PgBoss> {
-  const boss = new PgBoss({ connectionString: process.env.DATABASE_URL_OWNER });
-  boss.on('error', (err) => console.error('[pg-boss]', err));
-  await boss.start();
-  await boss.createQueue(GENERATE_QUEUE, { ...QUEUE_OPTIONS });
-  await boss.createQueue(GRADE_QUEUE, { ...QUEUE_OPTIONS });
+  const boss = await getSendBoss();
+  await ensureQueue(boss, GENERATE_QUEUE, { ...QUEUE_OPTIONS });
+  await ensureQueue(boss, GRADE_QUEUE, { ...QUEUE_OPTIONS });
   return boss;
 }
 
@@ -45,14 +46,14 @@ export class PgBossQueue implements StudyQueue {
   }
 
   async enqueueGenerate(d: GenerateJob): Promise<void> {
-    await (await this.get()).send(GENERATE_QUEUE, d, { ...QUEUE_OPTIONS, singletonKey: d.artifactId });
+    await (await this.get()).send(GENERATE_QUEUE, d, { ...JOB_OPTIONS, singletonKey: d.artifactId });
   }
 
   async enqueueGrade(d: GradeJob[]): Promise<void> {
     if (d.length === 0) return;
     await (await this.get()).insert(
       GRADE_QUEUE,
-      d.map((data) => ({ data, ...QUEUE_OPTIONS })),
+      d.map((data) => ({ data, ...JOB_OPTIONS, singletonKey: gradeKey(data) })),
     );
   }
 
@@ -76,9 +77,9 @@ export function getStudyQueue(): StudyQueue {
 }
 
 /** Registers both study workers on an already started boss (the ingest worker's). Installed pg-boss 12 `includeMetadata`. */
-export async function registerStudyToolsWorkers(boss: Pick<PgBoss, 'createQueue' | 'work'>): Promise<void> {
-  await boss.createQueue(GENERATE_QUEUE, { ...QUEUE_OPTIONS });
-  await boss.createQueue(GRADE_QUEUE, { ...QUEUE_OPTIONS });
+export async function registerStudyToolsWorkers(boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'deleteQueue' | 'work'>): Promise<void> {
+  await ensureQueue(boss, GENERATE_QUEUE, { ...QUEUE_OPTIONS });
+  await ensureQueue(boss, GRADE_QUEUE, { ...QUEUE_OPTIONS });
   await boss.work<GradeJob, void, { includeMetadata: true; localConcurrency: number }>(
     GRADE_QUEUE,
     { includeMetadata: true, localConcurrency: GRADE_CONCURRENCY },

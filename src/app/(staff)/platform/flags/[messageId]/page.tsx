@@ -25,7 +25,7 @@ export default async function FlagPage({ params }: { params: Promise<{ messageId
       <PlatformNav />
       <p><Link href="/platform/flags">Back to flags</Link></p>
       <ConversationView messages={conv.messages} flaggedMessageId={conv.flaggedMessageId} />
-      <ReviewButton messageId={conv.flaggedMessageId} />
+      <ReviewButton messageId={conv.flaggedMessageId} reviewedAt={conv.reviewedAt} />
     </>
   );
 }

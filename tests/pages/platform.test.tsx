@@ -151,3 +151,21 @@ describe('components', () => {
     for (const s of ['Alpha', 'North', 'ABC123', 'Beta', 'No branches yet']) expect(html).toContain(s);
   });
 });
+
+describe('flag review state', () => {
+  it('ReviewButton shows the reviewed date and no button when already reviewed', async () => {
+    const { default: ReviewButton } = await import('@/app/(staff)/platform/_components/ReviewButton');
+    const done = renderToStaticMarkup(<ReviewButton messageId="m1" reviewedAt={new Date('2026-10-05T10:00:00Z')} />);
+    expect(done).toContain('Reviewed on 2026-10-05');
+    expect(done).not.toContain('<button');
+    const open = renderToStaticMarkup(<ReviewButton messageId="m1" reviewedAt={null} />);
+    expect(open).toContain('Mark reviewed');
+  });
+});
+
+describe('PlatformNav', () => {
+  it('links to content items', async () => {
+    const { default: PlatformNav } = await import('@/app/(staff)/platform/_components/PlatformNav');
+    expect(renderToStaticMarkup(<PlatformNav />)).toContain('href="/school/content"');
+  });
+});

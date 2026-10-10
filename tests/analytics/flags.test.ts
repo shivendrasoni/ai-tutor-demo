@@ -51,6 +51,17 @@ describe('flagged queue', () => {
     expect((await row(id)).reviewedBy).toBe(w.platform.userId);
   });
 
+  it('getFlaggedConversation reports reviewedAt/reviewedBy (null until reviewed)', async () => {
+    const id = await insertMessage({ ...a(), role: 'user', flagged: true });
+    const before = await getFlaggedConversation(w.platform, id);
+    expect(before.reviewedAt).toBeNull();
+    expect(before.reviewedBy).toBeNull();
+    await markReviewed(w.platform, id);
+    const after = await getFlaggedConversation(w.platform, id);
+    expect(after.reviewedAt).toBeInstanceOf(Date);
+    expect(after.reviewedBy).toBe(w.platform.userId);
+  });
+
   it('unflagged, unknown or malformed id -> NOT_FOUND for getFlaggedConversation and markReviewed', async () => {
     const id = await insertMessage({ ...a(), role: 'user' });
     for (const bad of [id, '00000000-0000-4000-8000-000000000000', 'not-a-uuid']) {

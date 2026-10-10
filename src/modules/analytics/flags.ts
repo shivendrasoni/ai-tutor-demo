@@ -54,7 +54,7 @@ export async function listFlagged(actor: Actor, args: { status: 'open' | 'review
 export async function getFlaggedConversation(
   actor: Actor,
   messageId: string,
-): Promise<{ messages: MessageRow[]; flaggedMessageId: string }> {
+): Promise<{ messages: MessageRow[]; flaggedMessageId: string; reviewedAt: Date | null; reviewedBy: string | null }> {
   requirePlatform(actor);
   if (!isUuid(messageId)) throw new DomainError('NOT_FOUND');
   const rows = await withPlatform(async (tx) => {
@@ -62,7 +62,8 @@ export async function getFlaggedConversation(
       select m2.id, m2.conversation_id as "conversationId", m2.role, m2.content, m2.citations,
         m2.retrieved_chunk_ids as "retrievedChunkIds", m2.decisions, m2.model, m2.model_tier as "modelTier",
         m2.tokens_in as "tokensIn", m2.tokens_out as "tokensOut", m2.cost, m2.latency_ms as "latencyMs",
-        m2.flagged, m2.flag_reason as "flagReason", m2.feedback, m2.created_at as "createdAt"
+        m2.flagged, m2.flag_reason as "flagReason", m2.feedback, m2.created_at as "createdAt",
+        f.reviewed_at as "reviewedAt", f.reviewed_by as "reviewedBy"
       from messages f
       join messages m2 on m2.conversation_id = f.conversation_id
       where f.id = ${messageId} and f.flagged = true
@@ -72,6 +73,8 @@ export async function getFlaggedConversation(
   if (!rows.length) throw new DomainError('NOT_FOUND');
   return {
     flaggedMessageId: messageId,
+    reviewedAt: rows[0].reviewedAt ? new Date(rows[0].reviewedAt as string | Date) : null,
+    reviewedBy: (rows[0].reviewedBy as string | null) ?? null,
     messages: rows.map((r) => ({
       id: r.id as string,
       conversationId: r.conversationId as string,

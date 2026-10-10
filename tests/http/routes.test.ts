@@ -19,6 +19,7 @@ import * as meStatusRoute from '@/app/api/me/status/route';
 import * as meRoute from '@/app/api/me/route';
 import * as studentsRoute from '@/app/api/school/students/route';
 import * as removeRoute from '@/app/api/school/students/[id]/remove/route';
+import * as reinviteRoute from '@/app/api/school/students/[id]/invite/route';
 import * as branchCodeRoute from '@/app/api/school/branches/[id]/code/route';
 import * as pendingRoute from '@/app/api/platform/pending/route';
 import * as paymentsRoute from '@/app/api/platform/payments/route';
@@ -356,6 +357,30 @@ describe('school students', () => {
     expect(res.status).toBe(200);
     const list = await studentsRoute.GET(req('GET', '/api/school/students?status=removed', { cookie }));
     expect((await list.json()).students.map((s: { userId: string }) => s.userId)).toEqual([seed.a.studentId]);
+  });
+
+  it('invite route reissues a working link for a not-yet-signed-up student; cross-school and unauth are refused', async () => {
+    const cookie = await sidFor(seed.a.schoolAdmin.userId);
+    const add = await studentsRoute.POST(req('POST', '/x', { cookie, body: {
+      branchId: seed.a.branchId, grade: 8, studentName: 'Kabir', parentName: 'P', parentPhone: '9000000000',
+    } }));
+    const oldToken = (await add.json()).inviteUrl.split('/').pop()!;
+    const list = await studentsRoute.GET(req('GET', '/api/school/students?status=pending_payment', { cookie }));
+    const kabir = (await list.json()).students.find((s: { name: string }) => s.name === 'Kabir');
+
+    await expectError(await reinviteRoute.POST(req('POST', '/x'), ctx({ id: kabir.userId })), 401, 'UNAUTHENTICATED');
+    const other = await sidFor(seed.b.schoolAdmin.userId);
+    await expectError(await reinviteRoute.POST(req('POST', '/x', { cookie: other }), ctx({ id: kabir.userId })), 404, 'NOT_FOUND');
+    const teacher = await sidFor(seed.a.teacher.userId);
+    await expectError(await reinviteRoute.POST(req('POST', '/x', { cookie: teacher }), ctx({ id: kabir.userId })), 403, 'FORBIDDEN');
+    await expectError(await reinviteRoute.POST(req('POST', '/x', { cookie }), ctx({ id: seed.a.studentId })), 400, 'VALIDATION');
+
+    const res = await reinviteRoute.POST(req('POST', '/x', { cookie }), ctx({ id: kabir.userId }));
+    expect(res.status).toBe(201);
+    const newToken = (await res.json()).inviteUrl.split('/').pop()!;
+    expect(newToken).not.toBe(oldToken);
+    await expectError(await inviteRoute.GET(req('GET', '/x'), ctx({ token: oldToken })), 410, 'INVITE_INVALID');
+    expect((await inviteRoute.GET(req('GET', '/x'), ctx({ token: newToken }))).status).toBe(200);
   });
 
   it('branch code rotate returns a new code; enable/disable return no code; bad action → 400', async () => {

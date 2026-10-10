@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { withPlatform, withTenant } from '@/db/client';
 import {
@@ -85,6 +85,51 @@ export async function manualAddStudent(
     return user.id;
   });
   return { studentUserId, inviteToken: token, inviteUrl: `${base}/invite/${token}` };
+}
+
+/**
+ * Issues a new invite link for a student who was added manually but has not signed up yet (no username),
+ * e.g. because the first link expired or was lost. Older unused invites are expired. The caller needs
+ * `canManageBranch` on the student's branch.
+ */
+export async function reissueInvite(actor: Actor, studentUserId: string): Promise<{ inviteUrl: string }> {
+  const base = appUrl();
+  const notFound = () => new DomainError('NOT_FOUND', 'Student not found');
+  if (!isUuid(studentUserId)) throw notFound();
+  const token = generateToken();
+  await runAs(actor, async (tx) => {
+    const [row] = await tx
+      .select({
+        schoolId: studentProfiles.schoolId,
+        branchId: studentProfiles.branchId,
+        status: studentProfiles.status,
+        username: users.username,
+      })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .where(eq(studentProfiles.userId, studentUserId))
+      .limit(1)
+      .for('update', { of: studentProfiles });
+    if (!row) throw notFound();
+    assert(canManageBranch(actor, row.schoolId, row.branchId));
+    if (row.status !== 'pending_payment' || row.username !== null) {
+      throw new DomainError('VALIDATION', 'A new invite can only be issued to a student who has not signed up yet', {
+        reason: 'not_reissuable',
+      });
+    }
+    const now = new Date();
+    await tx
+      .update(invites)
+      .set({ expiresAt: now })
+      .where(and(eq(invites.studentUserId, studentUserId), isNull(invites.usedAt)));
+    await tx.insert(invites).values({
+      schoolId: row.schoolId,
+      studentUserId,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(now.getTime() + INVITE_TTL_MS),
+    });
+  });
+  return { inviteUrl: `${base}/invite/${token}` };
 }
 
 export async function getInvite(

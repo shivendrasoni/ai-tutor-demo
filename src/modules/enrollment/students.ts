@@ -5,8 +5,10 @@ import {
 } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import type { Actor, StudentStatus } from '@/modules/tenancy/actor';
+import { hashPassword, assertPasswordStrength } from '@/modules/tenancy/auth/passwords';
 import { canManageBranch, runAs } from '@/modules/tenancy/authz';
 import { revokeUserSessions } from '@/modules/tenancy/auth/sessions';
+import { isPeriodExpired, lapseExpired } from './lapse';
 
 export type StudentRow = {
   userId: string;
@@ -115,8 +117,42 @@ export async function removeStudent(actor: Actor, studentUserId: string): Promis
   });
 }
 
+/**
+ * Admin-initiated password reset: sets a new password for a student of a branch the actor manages
+ * (platform admins: any) and revokes the student's sessions. The admin hands the new password to the family.
+ */
+export async function resetStudentPassword(actor: Actor, studentUserId: string, newPassword: string): Promise<void> {
+  const notFound = () => new DomainError('NOT_FOUND', 'Student not found');
+  if (!isUuid(studentUserId)) throw notFound();
+  await runAs(actor, async (tx) => {
+    const [row] = await tx
+      .select({
+        schoolId: studentProfiles.schoolId,
+        branchId: studentProfiles.branchId,
+        status: studentProfiles.status,
+        passwordHash: users.passwordHash,
+      })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .where(eq(studentProfiles.userId, studentUserId));
+    if (!row) throw notFound();
+    if (!canManageBranch(actor, row.schoolId, row.branchId)) throw new DomainError('FORBIDDEN');
+    if (row.status === 'removed') throw new DomainError('STUDENT_REMOVED', 'Student has been removed');
+    if (!row.passwordHash) {
+      throw new DomainError('VALIDATION', 'This student has not signed up yet; send them an invite link instead', {
+        reason: 'not_signed_up',
+      });
+    }
+    assertPasswordStrength(newPassword);
+    const passwordHash = await hashPassword(newPassword);
+    await tx.update(users).set({ passwordHash }).where(eq(users.id, studentUserId));
+    await revokeUserSessions(tx, studentUserId);
+  });
+}
+
 export async function studentStatus(
   actor: Actor,
+  now: Date = new Date(),
 ): Promise<{ status: StudentStatus; planName: string | null; periodEnd: Date | null }> {
   if (!actor.roles.includes('student')) throw new DomainError('FORBIDDEN', 'Students only');
   const [row] = await runAs(actor, (tx) =>
@@ -132,5 +168,10 @@ export async function studentStatus(
       .where(eq(studentProfiles.userId, actor.userId)),
   );
   if (!row) throw new DomainError('NOT_FOUND', 'Student profile not found');
+  // Read-time lapse: an active student whose period has ended is lapsed even if the daily job has not run.
+  if (row.status === 'active' && isPeriodExpired(row.periodEnd, now)) {
+    await lapseExpired(now, actor.userId);
+    return { status: 'lapsed', planName: row.planName, periodEnd: row.periodEnd };
+  }
   return row as { status: StudentStatus; planName: string | null; periodEnd: Date | null };
 }

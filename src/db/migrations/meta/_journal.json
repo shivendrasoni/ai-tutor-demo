@@ -85,6 +85,20 @@
       "when": 1791602266715,
       "tag": "0011_study_recovered_at",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791633737096,
+      "tag": "0012_sticky_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791633884803,
+      "tag": "0013_green_justin_hammer",
+      "breakpoints": true
     }
   ]
 }

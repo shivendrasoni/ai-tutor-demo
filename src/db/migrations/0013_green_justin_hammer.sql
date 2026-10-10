@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "payments_subscription_external_ref_unique" ON "payments" USING btree ("subscription_id","external_ref") WHERE "payments"."external_ref" is not null;

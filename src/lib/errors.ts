@@ -14,7 +14,8 @@ export type ErrorCode =
   | 'BUDGET_EXCEEDED'
   | 'TUTOR_BUSY'
   | 'GENERATION_LIMIT'
-  | 'ATTEMPT_EXPIRED';
+  | 'ATTEMPT_EXPIRED'
+  | 'RATE_LIMITED';
 
 export class DomainError extends Error {
   code: ErrorCode;

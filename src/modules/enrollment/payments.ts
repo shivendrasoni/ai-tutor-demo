@@ -4,6 +4,7 @@ import { withPlatform } from '@/db/client';
 import {
   branches, payments, plans, schools, studentProfiles, subscriptions, users,
 } from '@/db/schema';
+import { isUniqueViolation } from '@/db/pgerror';
 import { DomainError } from '@/lib/errors';
 import type { Actor } from '@/modules/tenancy/actor';
 import { requirePlatform } from '@/modules/tenancy/authz';
@@ -16,12 +17,16 @@ const PaymentSchema = z.object({
   paidAt: z.date().refine((d) => !Number.isNaN(d.getTime())),
 });
 
+const PAID_AT_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const PAID_AT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+
 const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
 const notFound = () => new DomainError('NOT_FOUND', 'Subscription not found');
 
 export async function recordPayment(
   actor: Actor,
   input: { subscriptionId: string; amountMinor: number; currency: string; externalRef?: string; paidAt: Date },
+  now: Date = new Date(),
 ): Promise<{ periodStart: Date; periodEnd: Date }> {
   requirePlatform(actor);
   if (!isUuid(input.subscriptionId)) throw notFound();
@@ -32,6 +37,13 @@ export async function recordPayment(
     });
   }
   const { amountMinor, currency, externalRef, paidAt } = parsed.data;
+  // Bounds live here (not only in the HTTP route) so the CLI cannot bypass them.
+  if (paidAt.getTime() > now.getTime() + PAID_AT_FUTURE_SKEW_MS) {
+    throw new DomainError('VALIDATION', 'paidAt cannot be in the future', { field: 'paidAt' });
+  }
+  if (paidAt.getTime() < now.getTime() - PAID_AT_MAX_AGE_MS) {
+    throw new DomainError('VALIDATION', 'paidAt cannot be more than a year ago', { field: 'paidAt' });
+  }
 
   return withPlatform(async (tx) => {
     // Row lock serializes concurrent payments on the same subscription.
@@ -56,16 +68,23 @@ export async function recordPayment(
     const periodStart = extending ? sub.currentPeriodStart! : paidAt;
     const periodEnd = addInterval(extending ? sub.currentPeriodEnd! : paidAt, interval);
 
-    await tx.insert(payments).values({
-      schoolId: sub.schoolId,
-      subscriptionId: sub.id,
-      amountMinor,
-      currency,
-      method: 'manual_link',
-      externalRef: externalRef ?? null,
-      paidAt,
-      recordedBy: actor.userId,
-    });
+    try {
+      await tx.insert(payments).values({
+        schoolId: sub.schoolId,
+        subscriptionId: sub.id,
+        amountMinor,
+        currency,
+        method: 'manual_link',
+        externalRef: externalRef ?? null,
+        paidAt,
+        recordedBy: actor.userId,
+      });
+    } catch (err) {
+      if (isUniqueViolation(err, 'payments_subscription_external_ref_unique')) {
+        throw new DomainError('VALIDATION', 'This payment reference was already recorded', { reason: 'duplicate_payment' });
+      }
+      throw err;
+    }
     await tx
       .update(subscriptions)
       .set({ status: 'active', currentPeriodStart: periodStart, currentPeriodEnd: periodEnd })

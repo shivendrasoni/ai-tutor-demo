@@ -15,10 +15,13 @@ beforeEach(async () => {
 });
 afterAll(closeDb);
 
-const pay = (paidAt: string, over: Record<string, unknown> = {}, sub = seed.a.subscriptionId) =>
-  recordPayment(seed.platform, {
-    subscriptionId: sub, amountMinor: 49900, currency: 'INR', paidAt: new Date(paidAt), ...over,
-  });
+// `now` defaults to the payment date itself (so fixed 2027 dates stay inside the date bounds).
+const pay = (paidAt: string, over: Record<string, unknown> = {}, sub = seed.a.subscriptionId, now?: Date) =>
+  recordPayment(
+    seed.platform,
+    { subscriptionId: sub, amountMinor: 49900, currency: 'INR', paidAt: new Date(paidAt), ...over },
+    now ?? new Date(paidAt),
+  );
 const profileStatus = async (id: string) =>
   (await withPlatform((tx) => tx.select().from(studentProfiles).where(eq(studentProfiles.userId, id))))[0].status;
 const subRow = async (id: string) =>
@@ -145,6 +148,49 @@ describe('recordPayment', () => {
     expect(sub.currentPeriodStart!.toISOString()).toBe('2027-01-31T00:00:00.000Z');
     expect(sub.currentPeriodEnd!.toISOString()).toBe('2027-03-28T00:00:00.000Z');
     expect(await paymentCount()).toBe(2);
+  });
+});
+
+describe('recordPayment idempotency and date bounds', () => {
+  it('a repeated externalRef on the same subscription is VALIDATION duplicate_payment and records nothing', async () => {
+    await pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-9' });
+    const err = await pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-9' }).catch((e) => e);
+    expect(err).toBeInstanceOf(DomainError);
+    expect(err.code).toBe('VALIDATION');
+    expect(err.message).toBe('This payment reference was already recorded');
+    expect(err.details).toEqual({ reason: 'duplicate_payment' });
+    expect(await paymentCount()).toBe(1);
+    expect((await subRow(seed.a.subscriptionId)).currentPeriodEnd!.toISOString()).toBe('2027-02-28T00:00:00.000Z');
+  });
+
+  it('concurrent duplicate refs record exactly one payment', async () => {
+    const r = await Promise.all([
+      codeOf(pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-C' })),
+      codeOf(pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-C' })),
+    ]);
+    expect(r.sort()).toEqual(['VALIDATION', 'ok']);
+    expect(await paymentCount()).toBe(1);
+  });
+
+  it('the same ref on another subscription is fine, and payments without a ref never collide', async () => {
+    await pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-9' });
+    expect(await codeOf(pay('2027-01-31T00:00:00Z', { externalRef: 'UPI-9' }, seed.b.subscriptionId))).toBe('ok');
+    expect(await codeOf(pay('2027-02-01T00:00:00Z'))).toBe('ok');
+    expect(await codeOf(pay('2027-02-02T00:00:00Z'))).toBe('ok');
+  });
+
+  it('rejects a paidAt more than 5 minutes in the future (service level, so the CLI is covered)', async () => {
+    const now = new Date('2026-10-10T12:00:00Z');
+    expect(await codeOf(pay('2026-10-10T12:05:01Z', {}, seed.a.subscriptionId, now))).toBe('VALIDATION');
+    expect(await codeOf(pay('2026-10-10T12:05:00Z', {}, seed.a.subscriptionId, now))).toBe('ok');
+    expect(await codeOf(pay('2030-01-01T00:00:00Z', {}, seed.b.subscriptionId, now))).toBe('VALIDATION');
+    expect(await paymentCount()).toBe(1);
+  });
+
+  it('rejects a paidAt older than one year', async () => {
+    const now = new Date('2026-10-10T12:00:00Z');
+    expect(await codeOf(pay('2025-10-10T11:59:59Z', {}, seed.a.subscriptionId, now))).toBe('VALIDATION');
+    expect(await codeOf(pay('2025-10-10T12:00:00Z', {}, seed.a.subscriptionId, now))).toBe('ok');
   });
 });
 

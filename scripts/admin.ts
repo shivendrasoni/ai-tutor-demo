@@ -7,6 +7,8 @@
  *   create-plan           --name <n> --interval monthly|annual --price-minor <int> [--currency INR]
  *   create-staff          --school <schoolId> [--branch <branchId>] --role school_admin|branch_admin|teacher
  *                         --username <u> --password <p> --name <n>
+ *   reset-password        --username <student username> [--password <p>] [--as <platform admin username>]
+ *                         (admin-initiated student password reset; revokes the student's sessions)
  *   pending
  *   record-payment        --subscription <id> --amount-minor <int> [--currency INR] [--ref <r>] [--paid-at <ISO>]
  *                         --as <platform admin username>   (required)
@@ -27,7 +29,7 @@ import { closeDb, withPlatform } from '@/db/client';
 import { users } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import { redactError } from '@/lib/redact';
-import { createPlan, listPendingSubscriptions, recordPayment } from '@/modules/enrollment';
+import { createPlan, listPendingSubscriptions, recordPayment, resetStudentPassword } from '@/modules/enrollment';
 import {
   createBranch, createSchool, createStaffUser, hashPassword, loadActor, normalizeUsername,
   validateCredentials, withUsernameTakenHandling, type Actor, type StaffRole,
@@ -145,6 +147,17 @@ const commands: Record<string, Command> = {
         name: req(f, 'name'),
       };
       return createStaffUser(await actor(), input);
+    },
+  },
+  'reset-password': {
+    flags: ['username', 'password'],
+    run: async (f, actor) => {
+      const username = normalizeUsername(req(f, 'username'));
+      const pw = password(f);
+      const [u] = await withPlatform((tx) => tx.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1));
+      if (!u) throw new DomainError('NOT_FOUND', 'Student not found');
+      await resetStudentPassword(await actor(), u.id, pw);
+      return { userId: u.id, username };
     },
   },
   pending: {

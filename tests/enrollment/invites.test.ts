@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform, withTenant } from '@/db/client';
 import { invites, memberships, plans, studentProfiles, subscriptions, users } from '@/db/schema';
-import { completeInvite, getInvite, manualAddStudent } from '@/modules/enrollment/invites';
+import { completeInvite, getInvite, manualAddStudent, reissueInvite } from '@/modules/enrollment/invites';
 import { login } from '@/modules/tenancy';
 import { hashToken } from '@/modules/tenancy/auth/sessions';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
@@ -147,5 +147,60 @@ describe('getInvite / completeInvite', () => {
     expect(rejected.reason.code).toBe('INVITE_INVALID');
     const subs = await withTenant(seed.a.schoolId, (tx) => tx.select().from(subscriptions));
     expect(subs.filter((s) => s.studentId === studentUserId)).toHaveLength(1);
+  });
+});
+
+describe('reissueInvite', () => {
+  const tokenOf = (url: string) => url.split('/').pop()!;
+
+  it('issues a fresh 14-day link, expires the old one, and the new one completes signup', async () => {
+    const { studentUserId, inviteToken: oldToken } = await manualAddStudent(seed.a.schoolAdmin, input);
+    const { inviteUrl } = await reissueInvite(seed.a.schoolAdmin, studentUserId);
+    expect(inviteUrl).toMatch(new RegExp(`^${process.env.APP_URL}/invite/[A-Za-z0-9_-]+$`));
+    const newToken = tokenOf(inviteUrl);
+    expect(newToken).not.toBe(oldToken);
+    expect(await getInvite(oldToken)).toBeNull();
+    expect(await codeOf(completeInvite({ token: oldToken, planId: seed.planId, username: 'riya.old', password: 'kid-password' }))).toBe('INVITE_INVALID');
+    expect(await getInvite(newToken)).toMatchObject({ studentName: 'Riya Sharma', grade: 8 });
+    const [row] = await withPlatform((tx) => tx.select().from(invites).where(eq(invites.tokenHash, hashToken(newToken))));
+    const ttl = row.expiresAt.getTime() - Date.now();
+    expect(ttl).toBeGreaterThan(13.9 * 86_400_000);
+    expect(ttl).toBeLessThanOrEqual(14 * 86_400_000);
+    await completeInvite({ token: newToken, planId: seed.planId, username: 'riya.new', password: 'kid-password' });
+    expect((await login('riya.new', 'kid-password')).actor.userId).toBe(studentUserId);
+  });
+
+  it('works when the old invite already expired, and leaves exactly one live invite', async () => {
+    const { studentUserId } = await manualAddStudent(seed.a.schoolAdmin, input);
+    await withPlatform((tx) => tx.update(invites).set({ expiresAt: new Date(Date.now() - 1000) }));
+    const { inviteUrl } = await reissueInvite(seed.a.schoolAdmin, studentUserId);
+    expect(await getInvite(tokenOf(inviteUrl))).not.toBeNull();
+    const all = await withPlatform((tx) => tx.select().from(invites).where(eq(invites.studentUserId, studentUserId)));
+    expect(all.filter((i) => !i.usedAt && i.expiresAt.getTime() > Date.now())).toHaveLength(1);
+  });
+
+  it('branch admin of the branch can; teacher and student cannot', async () => {
+    const { studentUserId } = await manualAddStudent(seed.a.schoolAdmin, input);
+    await expect(reissueInvite(seed.a.branchAdmin, studentUserId)).resolves.toBeTruthy();
+    expect(await codeOf(reissueInvite(seed.a.teacher, studentUserId))).toBe('FORBIDDEN');
+    expect(await codeOf(reissueInvite(seed.a.student, studentUserId))).toBe('FORBIDDEN');
+  });
+
+  it('refuses students who already signed up, are removed, or are not students; bad ids are NOT_FOUND', async () => {
+    // Seeded student already has a username.
+    expect(await codeOf(reissueInvite(seed.a.schoolAdmin, seed.a.studentId))).toBe('VALIDATION');
+    const { studentUserId } = await manualAddStudent(seed.a.schoolAdmin, input);
+    await withPlatform((tx) => tx.update(studentProfiles).set({ status: 'removed' }).where(eq(studentProfiles.userId, studentUserId)));
+    expect(await codeOf(reissueInvite(seed.a.schoolAdmin, studentUserId))).toBe('VALIDATION');
+    expect(await codeOf(reissueInvite(seed.a.schoolAdmin, seed.a.teacherId))).toBe('NOT_FOUND');
+    expect(await codeOf(reissueInvite(seed.a.schoolAdmin, 'nope'))).toBe('NOT_FOUND');
+  });
+
+  it('a student of another school is invisible (NOT_FOUND) and nothing changes', async () => {
+    const { studentUserId } = await manualAddStudent(seed.b.schoolAdmin, { ...input, branchId: seed.b.branchId, sectionId: seed.b.sectionId });
+    const before = await withPlatform((tx) => tx.select().from(invites));
+    expect(await codeOf(reissueInvite(seed.a.schoolAdmin, studentUserId))).toBe('NOT_FOUND');
+    expect(await codeOf(reissueInvite(seed.a.branchAdmin, studentUserId))).toBe('NOT_FOUND');
+    expect(await withPlatform((tx) => tx.select().from(invites))).toEqual(before);
   });
 });

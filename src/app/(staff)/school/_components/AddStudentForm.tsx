@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Card, Field } from '@/app/ui/components';
 import type { BranchListing } from '@/modules/analytics';
 
-export function InviteResult({ url }: { url: string }) {
+export function InviteResult({ url, message = 'Student added. Share this invite link with the parent:' }: { url: string; message?: string }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -16,7 +16,7 @@ export function InviteResult({ url }: { url: string }) {
   }
   return (
     <div role="status">
-      <p>Student added. Share this invite link with the parent:</p>
+      <p>{message}</p>
       <input readOnly value={url} aria-label="Invite link" size={48} />{' '}
       <button type="button" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
     </div>

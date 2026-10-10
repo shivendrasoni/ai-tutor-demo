@@ -23,6 +23,7 @@ export const STATUS: Record<ErrorCode, number> = {
   INVITE_INVALID: 410,
   BUDGET_EXCEEDED: 429,
   GENERATION_LIMIT: 429,
+  RATE_LIMITED: 429,
   TUTOR_BUSY: 503,
 };
 
@@ -49,7 +50,11 @@ function errorResponse(status: number, code: string, message?: string, details?:
   const error: Record<string, unknown> = { code };
   if (message !== undefined) error.message = message;
   if (details !== undefined) error.details = details;
-  return json({ error }, { status });
+  const headers: Record<string, string> = {};
+  if (code === 'RATE_LIMITED' && typeof details?.retryAfterMs === 'number') {
+    headers['retry-after'] = String(Math.max(1, Math.ceil(details.retryAfterMs / 1000)));
+  }
+  return json({ error }, { status, headers });
 }
 
 /** Wraps a route handler: maps DomainError/HttpError to JSON error responses and anything else to 500 INTERNAL. */

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DomainError } from '@/lib/errors';
 import { handle, json, readJson } from '@/lib/http';
+import { clientIp, enforce, limits, WINDOW_1_HOUR } from '@/lib/rate-limit';
 import { completeInvite, getInvite } from '@/modules/enrollment';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,7 @@ const Body = z.object({
 });
 
 export const POST = handle(async (req: Request, ctx: Ctx) => {
+  await enforce(`join:submit:${clientIp(req)}`, limits.joinSubmitPerIp(), WINDOW_1_HOUR);
   const { token } = await ctx.params;
   const body = await readJson(req, Body);
   const r = await completeInvite({ token, ...body });

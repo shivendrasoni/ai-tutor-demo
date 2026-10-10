@@ -1,10 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { memberships, payments, studentProfiles, users } from '@/db/schema';
+import { memberships, payments, sessions, studentProfiles, users } from '@/db/schema';
 import { signupWithCode } from '@/modules/enrollment';
 import { run } from '../../scripts/admin';
-import { resetDb } from '../helpers/db';
+import { login } from '@/modules/tenancy';
+import { createSession } from '@/modules/tenancy/auth/sessions';
+import { resetDb, seedTwoSchools } from '../helpers/db';
 
 beforeEach(resetDb);
 afterAll(closeDb);
@@ -76,8 +78,52 @@ describe('scripts/admin run()', () => {
     expect(p.status).toBe('active');
     expect((await cli('pending')).json()).toEqual([]);
 
+    // The CLI cannot bypass the paid-at bounds or the duplicate-reference guard.
+    const future = await cli(
+      'record-payment', '--subscription', subscriptionId, '--amount-minor', '1',
+      '--paid-at', new Date(Date.now() + 86_400_000).toISOString(), '--as', 'ops_test',
+    );
+    expect(future.code).toBe(1);
+    expect(future.err.join('\n')).toMatch(/VALIDATION.*future/);
+    const dupe = await cli(
+      'record-payment', '--subscription', subscriptionId, '--amount-minor', '49900',
+      '--ref', 'UPI-1', '--paid-at', '2026-10-02T00:00:00Z', '--as', 'ops_test',
+    );
+    expect(dupe.code).toBe(1);
+    expect(dupe.err.join('\n')).toMatch(/duplicate_payment/);
+
     const all = [pa, school, branch, plan, staff, pending, paid].flatMap((r) => [...r.out, ...r.err]).join('\n');
     expect(all).not.toMatch(/change-me-now|teacher-pass-1/);
+  });
+
+  it('reset-password sets a student password (env or flag), revokes sessions, and never prints it', async () => {
+    const seed = await seedTwoSchools();
+    const [u] = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.studentId)));
+    await createSession(seed.a.studentId);
+    await cli('create-platform-admin', '--username', 'ops_pw', '--password', 'change-me-now', '--name', 'Ops');
+
+    const r = await cli('reset-password', '--username', u.username!.toUpperCase(), '--password', 'fresh-secret-1', '--as', 'ops_pw');
+    expect(r.code).toBe(0);
+    expect(r.json()).toEqual({ userId: seed.a.studentId, username: u.username });
+    expect([...r.out, ...r.err].join('\n')).not.toContain('fresh-secret-1');
+    expect((await login(u.username!, 'fresh-secret-1')).actor.userId).toBe(seed.a.studentId);
+    expect(await withPlatform((tx) => tx.select().from(sessions).where(eq(sessions.userId, seed.a.studentId)))).toHaveLength(1); // only the login above
+
+    process.env.ADMIN_PASSWORD = 'from-env-secret';
+    try {
+      expect((await cli('reset-password', '--username', u.username!, '--as', 'ops_pw')).code).toBe(0);
+    } finally {
+      delete process.env.ADMIN_PASSWORD;
+    }
+    expect((await login(u.username!, 'from-env-secret')).actor.userId).toBe(seed.a.studentId);
+
+    expect((await cli('reset-password', '--username', u.username!, '--password', 'short', '--as', 'ops_pw')).err.join('\n')).toMatch(/WEAK_PASSWORD/);
+    const missing = await cli('reset-password', '--username', 'no_such_student', '--password', 'valid-pass-1', '--as', 'ops_pw');
+    expect(missing.code).toBe(1);
+    expect(missing.err.join('\n')).toMatch(/NOT_FOUND/);
+    const staff = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.teacherId)));
+    expect((await cli('reset-password', '--username', staff[0].username!, '--password', 'valid-pass-1', '--as', 'ops_pw')).code).toBe(1);
+    expect((await cli('reset-password', '--password', 'valid-pass-1')).code).toBe(2); // --username required
   });
 
   it('--as must name an existing platform admin', async () => {

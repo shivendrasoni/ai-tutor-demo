@@ -1,7 +1,9 @@
 import { Badge, DataTable } from '@/app/ui/components';
 import { formatDate } from '@/app/ui/format';
 import type { StudentRow } from '@/modules/enrollment';
+import NewInviteButton from './NewInviteButton';
 import RemoveButton from './RemoveButton';
+import ResetPasswordButton from './ResetPasswordButton';
 
 const TONE = { active: 'ok', pending_payment: 'warn', lapsed: 'bad', removed: 'muted' } as const;
 const LABEL = { active: 'active', pending_payment: 'pending payment', lapsed: 'lapsed', removed: 'removed' } as const;
@@ -17,7 +19,16 @@ export default function StudentsTable({ rows, canRemove }: { rows: StudentRow[];
     ...(canRemove
       ? [{
           header: 'Actions',
-          cell: (r: StudentRow) => (r.status === 'removed' ? '—' : <RemoveButton studentId={r.userId} name={r.name} />),
+          cell: (r: StudentRow) =>
+            r.status === 'removed' ? '—' : (
+              <>
+                {r.status === 'pending_payment' && r.username === null ? (
+                  <><NewInviteButton studentId={r.userId} name={r.name} />{' '}</>
+                ) : null}
+                {r.username !== null ? <><ResetPasswordButton studentId={r.userId} name={r.name} />{' '}</> : null}
+                <RemoveButton studentId={r.userId} name={r.name} />
+              </>
+            ),
         }]
       : []),
   ];

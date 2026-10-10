@@ -11,7 +11,7 @@ import {
   tenantTables, usageDaily, users,
 } from '@/db/schema';
 import {
-  listPendingSubscriptions, listStudents, manualAddStudent, recordPayment, removeStudent, studentStatus,
+  listPendingSubscriptions, listStudents, manualAddStudent, recordPayment, reissueInvite, removeStudent, resetStudentPassword, studentStatus,
 } from '@/modules/enrollment';
 import {
   assignTeacher, createBranch, createSection, createStaffUser, createSubject, listSectionsForBranch,
@@ -167,6 +167,27 @@ describe('service-level isolation: School A actors vs School B ids', () => {
     );
     const n = await withPlatform((tx) => tx.select().from(studentProfiles).where(eq(studentProfiles.schoolId, b.schoolId)));
     expect(n).toHaveLength(1);
+  });
+
+  it('reissueInvite for a B student by A actors is denied and B invites are untouched', async () => {
+    const { a, b } = seed;
+    const { studentUserId } = await manualAddStudent(b.schoolAdmin, studentInput(b.branchId));
+    const invitesOf = () => withPlatform((tx) => tx.select().from(invites).where(eq(invites.schoolId, b.schoolId)));
+    const before = await invitesOf();
+    for (const actor of [a.schoolAdmin, a.branchAdmin, a.teacher, a.student]) {
+      expect(['NOT_FOUND', 'FORBIDDEN']).toContain(await codeOf(reissueInvite(actor, studentUserId)));
+    }
+    expect(await invitesOf()).toEqual(before);
+  });
+
+  it('resetStudentPassword for a B student by A actors is denied and B password unchanged', async () => {
+    const { a, b } = seed;
+    const hashOf = async () => (await withPlatform((tx) => tx.select().from(users).where(eq(users.id, b.studentId))))[0].passwordHash;
+    const before = await hashOf();
+    for (const actor of [a.schoolAdmin, a.branchAdmin, a.teacher, a.student]) {
+      expect(['NOT_FOUND', 'FORBIDDEN']).toContain(await codeOf(resetStudentPassword(actor, b.studentId, 'attacker-pass-1')));
+    }
+    expect(await hashOf()).toBe(before);
   });
 
   it('recordPayment / listPendingSubscriptions as school admin are FORBIDDEN', async () => {

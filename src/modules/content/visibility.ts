@@ -2,6 +2,7 @@ import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { withTenant, type Tx } from '@/db/client';
 import { studentProfiles } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
+import { effectiveStudentStatus } from '@/modules/enrollment';
 import type { Actor } from '@/modules/tenancy';
 import { getDeps } from './deps';
 
@@ -50,6 +51,8 @@ export async function studentScope(actor: Actor): Promise<StudentScope> {
       .where(and(eq(studentProfiles.userId, actor.userId), eq(studentProfiles.schoolId, schoolId))),
   );
   if (!p || p.status !== 'active') throw new DomainError('FORBIDDEN');
+  // An expired period lapses the student at read time, without waiting for the daily job.
+  if ((await effectiveStudentStatus(actor.userId)) !== 'active') throw new DomainError('FORBIDDEN');
   return { schoolId, branchId: p.branchId, sectionId: p.sectionId, grade: p.grade };
 }
 

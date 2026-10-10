@@ -21,6 +21,12 @@ const serverEnv: Record<string, string> = {
   EMBEDDER: 'fake',
   BLOB_DIR: process.env.BLOB_DIR,
   NEXT_TELEMETRY_DISABLED: '1',
+  // Every spec logs in / joins from the same IP, so the production rate limits (see src/lib/rate-limit.ts)
+  // are raised here. The limiter is still active; it just can't trip within one e2e run.
+  RATE_LIMIT_LOGIN_USER: '10000',
+  RATE_LIMIT_LOGIN_IP: '10000',
+  RATE_LIMIT_JOIN_LOOKUP: '10000',
+  RATE_LIMIT_JOIN_SUBMIT: '10000',
 };
 
 export default defineConfig({

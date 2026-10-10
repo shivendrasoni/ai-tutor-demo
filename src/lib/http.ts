@@ -39,7 +39,7 @@ export const STATUS: Record<ErrorCode, number> = {
   TUTOR_BUSY: 503,
 };
 
-export const statusFor = (code: string): number => STATUS[code as ErrorCode] ?? 500;
+export const statusFor = (code: string): number => STATUS[code as ErrorCode] ?? 400;
 
 export function json(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
@@ -84,6 +84,35 @@ export function parseWith<S extends z.ZodTypeAny>(schema: S, value: unknown, mes
   return r.data;
 }
 
+async function readCapped(req: Request, maxBytes: number): Promise<string> {
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new DomainError('VALIDATION', 'Request body too large');
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (err instanceof DomainError) throw err;
+    throw new DomainError('VALIDATION', 'Request body could not be read');
+  }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 /** Reads and validates an application/json body, capped at `maxBytes` (default 100 KB). */
 export async function readJson<S extends z.ZodTypeAny>(
   req: Request,
@@ -94,8 +123,7 @@ export async function readJson<S extends z.ZodTypeAny>(
   if (type !== 'application/json') throw new DomainError('VALIDATION', 'Content-Type must be application/json');
   const declared = Number(req.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) throw new DomainError('VALIDATION', 'Request body too large');
-  const text = await req.text();
-  if (new TextEncoder().encode(text).length > maxBytes) throw new DomainError('VALIDATION', 'Request body too large');
+  const text = await readCapped(req, maxBytes);
   let body: unknown;
   try {
     body = JSON.parse(text);

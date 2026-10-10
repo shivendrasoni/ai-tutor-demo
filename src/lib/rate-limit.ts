@@ -55,7 +55,7 @@ export async function refund(key: string, windowMs: number, now: Date = new Date
 }
 
 export const rateLimited = (retryAfterMs: number): DomainError =>
-  new DomainError('RATE_LIMITED', 'Too many attempts. Please try again later.', { retryAfterMs });
+  new DomainError('RATE_LIMITED', 'Too many requests. Please try again later.', { retryAfterMs });
 
 export async function enforce(key: string, limit: number, windowMs: number, now: Date = new Date()): Promise<void> {
   const r = await hit(key, limit, windowMs, now);

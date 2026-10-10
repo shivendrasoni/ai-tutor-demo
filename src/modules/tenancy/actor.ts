@@ -1,4 +1,4 @@
-import { and, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt } from 'drizzle-orm';
 import { withPlatform, type Tx } from '@/db/client';
 import { memberships, sessions, studentProfiles, users } from '@/db/schema';
 import { hashToken } from './auth/sessions';
@@ -13,13 +13,17 @@ export type Actor = {
   roles: Role[];
 };
 
-/** Builds an Actor for a user from users + the single membership. Null if user is missing or a removed student. */
+/**
+ * Builds an Actor for a user from users + their membership. Null if user is missing or a removed student.
+ * Model rule: a (non-platform) user belongs to ONE school; nothing enforces it in the schema, so if a user
+ * ever has several memberships the oldest one (created_at, then id) wins deterministically.
+ */
 export async function loadActor(tx: Tx, userId: string): Promise<Actor | null> {
   const [u] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!u) return null;
   const [sp] = await tx.select({ status: studentProfiles.status }).from(studentProfiles).where(eq(studentProfiles.userId, userId));
   if (sp?.status === 'removed') return null;
-  const [m] = await tx.select().from(memberships).where(eq(memberships.userId, userId)).limit(1);
+  const [m] = await tx.select().from(memberships).where(eq(memberships.userId, userId)).orderBy(asc(memberships.createdAt), asc(memberships.id)).limit(1);
   return {
     userId,
     isPlatformAdmin: u.isPlatformAdmin,

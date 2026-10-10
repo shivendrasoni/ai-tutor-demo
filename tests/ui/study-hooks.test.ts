@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatCitation } from '@/app/(student)/learn/study/_lib/format';
-import { formatClock, nextPollDelay, secondsLeft, shouldAutosave } from '@/app/(student)/learn/study/_lib/timing';
+import { formatClock, nextPollDelay, secondsLeft, shouldAutosave, takeLinkLabel } from '@/app/(student)/learn/study/_lib/timing';
 
 describe('study helpers', () => {
   it('secondsLeft never goes negative', () =>
@@ -22,5 +22,13 @@ describe('study helpers', () => {
     expect(formatCitation({ itemTitle: 'B', chapterTitle: 'C', pageStart: 4, pageEnd: 4, chunkId: 'x' })).toBe('B · C · p. 4');
     expect(formatClock(7200)).toBe('2:00:00');
     expect(formatClock(65)).toBe('0:01:05');
+  });
+  it('labels the take link: Resume while the attempt can still be resumed, else Start a new attempt', () => {
+    const now = Date.parse('2027-01-01T01:00:00Z');
+    expect(takeLinkLabel('in_progress', null, now)).toBe('Resume attempt');
+    expect(takeLinkLabel('in_progress', '2027-01-01T01:30:00Z', now)).toBe('Resume attempt');
+    expect(takeLinkLabel('in_progress', '2027-01-01T00:58:30Z', now)).toBe('Resume attempt'); // inside the 2 min grace
+    expect(takeLinkLabel('in_progress', '2027-01-01T00:57:00Z', now)).toBe('Start a new attempt');
+    expect(takeLinkLabel('graded', null, now)).toBe('Start a new attempt');
   });
 });

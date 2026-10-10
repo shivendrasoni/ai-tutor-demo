@@ -24,3 +24,11 @@ export function formatClock(totalSeconds: number): string {
   const sec = s % 60;
   return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
+
+const GRACE_MS = 2 * 60_000;
+
+/** The take link resumes an `in_progress` attempt that is still within deadline + grace; otherwise it starts a new one. */
+export function takeLinkLabel(status: string, deadline: string | null, nowMs: number): 'Resume attempt' | 'Start a new attempt' {
+  const resumable = status === 'in_progress' && (deadline === null || nowMs <= Date.parse(deadline) + GRACE_MS);
+  return resumable ? 'Resume attempt' : 'Start a new attempt';
+}

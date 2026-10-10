@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Citations from '../../_lib/Citations';
 import { authRedirect, studyFetch, type Attempt } from '../../_lib/api';
-import { POLL_MS } from '../../_lib/timing';
+import { POLL_MS, takeLinkLabel } from '../../_lib/timing';
 import styles from '../../study.module.css';
 
 export default function AttemptPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,7 +46,7 @@ export default function AttemptPage({ params }: { params: Promise<{ id: string }
       {at.status === 'in_progress' && (
         <>
           <p className={styles.hint}>This attempt is still in progress.</p>
-          <Link className={styles.primaryLink} href={`/learn/study/a/${at.artifactId}/take`}>Start a new attempt</Link>
+          <Link className={styles.primaryLink} href={`/learn/study/a/${at.artifactId}/take`}>{takeLinkLabel(at.status, at.deadline, Date.now())}</Link>
         </>
       )}
       {at.status === 'grading' && <p className={styles.hint} role="status">Grading…</p>}

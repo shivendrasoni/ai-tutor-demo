@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { withPlatform } from '@/db/client';
 import {
-  branches, conversations, memberships, messages, sections, skills, studentProfiles, subjects,
+  artifacts, attempts, branches, chunks, contentChapters, contentItems, conversations, memberships, messages, sections, skills, studentProfiles, subjects,
   usageDaily, users,
 } from '@/db/schema';
 import { seedSkills } from '@/modules/tutor/skills';
@@ -136,4 +136,55 @@ export async function createEmptySchool(platform: Actor): Promise<{ schoolId: st
     schoolId, branchId: null, role: 'school_admin', username: 'empty_admin', password: 'correct-horse', name: 'Empty Admin',
   });
   return { schoolId, admin: { userId, isPlatformAdmin: false, schoolId, branchId: null, roles: ['school_admin'] } };
+}
+
+/** A `ready` content item (school scope, or section scope when `sectionId` is given) with one chapter and one chunk
+ *  (chapters without chunks are invisible to students). */
+export async function insertChapter(o: {
+  schoolId: string; branchId: string; sectionId?: string; subjectId: string; grade: number; title: string;
+}): Promise<{ chapterId: string; contentItemId: string }> {
+  return withPlatform(async (tx) => {
+    const [mem] = await tx.select({ userId: memberships.userId }).from(memberships).where(eq(memberships.schoolId, o.schoolId)).limit(1);
+    const [item] = await tx
+      .insert(contentItems)
+      .values({
+        schoolId: o.schoolId, grade: o.grade, subjectId: o.subjectId, kind: 'book',
+        scope: o.sectionId ? 'section' : 'school', branchId: o.sectionId ? o.branchId : null,
+        sectionId: o.sectionId ?? null, title: `Book ${o.title}`, fileKey: `k/${o.title}`,
+        uploadedBy: mem.userId, ingestStatus: 'ready', sizeBytes: 1,
+      })
+      .returning({ id: contentItems.id });
+    const [ch] = await tx
+      .insert(contentChapters)
+      .values({ schoolId: o.schoolId, contentItemId: item.id, ordinal: 1, title: o.title, pageStart: 1, pageEnd: 2 })
+      .returning({ id: contentChapters.id });
+    await tx.insert(chunks).values({
+      schoolId: o.schoolId, contentItemId: item.id, chapterId: ch.id, ordinal: 1, pageStart: 1, pageEnd: 2,
+      text: 'text', tokenEstimate: 1,
+    });
+    return { chapterId: ch.id, contentItemId: item.id };
+  });
+}
+
+/** One graded attempt (with its artifact) whose `by_chapter` is `byChapter`. */
+export async function insertGradedAttempt(o: {
+  schoolId: string; studentId: string; subjectId: string; byChapter: Record<string, { scored: number; max: number }>;
+}): Promise<void> {
+  const sid = await skillId('socratic');
+  await withPlatform(async (tx) => {
+    const [a] = await tx
+      .insert(artifacts)
+      .values({
+        schoolId: o.schoolId, studentId: o.studentId, skillId: sid, type: 'practice_test', subjectId: o.subjectId,
+        chapterIds: Object.keys(o.byChapter), status: 'ready', content: { questions: [] },
+        params: { chapterTitles: {} },
+      })
+      .returning({ id: artifacts.id });
+    const vals = Object.values(o.byChapter);
+    await tx.insert(attempts).values({
+      schoolId: o.schoolId, artifactId: a.id, studentId: o.studentId, status: 'graded',
+      byChapter: o.byChapter, score: String(vals.reduce((n, v) => n + v.scored, 0)),
+      maxScore: String(vals.reduce((n, v) => n + v.max, 0)), submittedAt: new Date(), gradedAt: new Date(),
+    });
+  });
 }

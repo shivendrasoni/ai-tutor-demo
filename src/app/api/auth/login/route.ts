@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DomainError } from '@/lib/errors';
 import { handle, json, readJson, sessionCookie } from '@/lib/http';
-import { clientIp, hit, limits, rateLimited, refund, WINDOW_15_MIN } from '@/lib/rate-limit';
+import { clientIp, hit, limits, peek, rateLimited, refund, WINDOW_15_MIN } from '@/lib/rate-limit';
 import { homeFor } from '@/lib/home';
 import { studentStatus } from '@/modules/enrollment';
 import { login, normalizeUsername } from '@/modules/tenancy';
@@ -15,27 +15,24 @@ const Body = z.object({
 
 export const POST = handle(async (req: Request) => {
   const { username, password } = await readJson(req, Body);
-  // Attempts are throttled per client IP and per username. Only the per-username counter is refunded for a login
-  // that gets past the password check; the per-IP counter is never refunded on success, so an attacker cannot
-  // reset it by interleaving logins to an account they own. A blocked request never reaches the (expensive)
-  // password verification.
+  // Failed attempts are throttled per client IP and per username. The IP counter only ever counts failures
+  // (checked before verifying, incremented only on invalid credentials, never refunded), so successful logins
+  // can neither consume nor reset it and a school behind one NAT is not locked out by normal use. The username
+  // counter is taken up front and refunded when the password check is passed. A blocked request never reaches
+  // the (expensive) password verification.
   const ipKey = `login:ip:${clientIp(req)}`;
   const userKey = `login:user:${normalizeUsername(username)}`;
-  const ip = await hit(ipKey, limits.loginPerIp(), WINDOW_15_MIN);
+  const ip = await peek(ipKey, limits.loginPerIp(), WINDOW_15_MIN);
   if (!ip.allowed) throw rateLimited(ip.retryAfterMs);
   const user = await hit(userKey, limits.loginPerUser(), WINDOW_15_MIN);
-  if (!user.allowed) {
-    await refund(ipKey, WINDOW_15_MIN);
-    throw rateLimited(user.retryAfterMs);
-  }
+  if (!user.allowed) throw rateLimited(user.retryAfterMs);
   let result: Awaited<ReturnType<typeof login>>;
   try {
     result = await login(username, password);
   } catch (err) {
     // Only a wrong username/password counts as a failed attempt.
-    if (!(err instanceof DomainError && err.code === 'INVALID_CREDENTIALS')) {
-      await Promise.all([refund(ipKey, WINDOW_15_MIN), refund(userKey, WINDOW_15_MIN)]);
-    }
+    if (err instanceof DomainError && err.code === 'INVALID_CREDENTIALS') await hit(ipKey, limits.loginPerIp(), WINDOW_15_MIN);
+    else await refund(userKey, WINDOW_15_MIN);
     throw err;
   }
   await refund(userKey, WINDOW_15_MIN);

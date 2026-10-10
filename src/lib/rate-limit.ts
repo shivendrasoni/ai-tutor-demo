@@ -33,6 +33,23 @@ export async function hit(
   return { allowed: row.count <= limit, retryAfterMs: Math.max(0, windowStart.getTime() + windowMs - now.getTime()) };
 }
 
+/** Read-only check: is `key` already at `limit` in the current window? Does not count the call. */
+export async function peek(
+  key: string,
+  limit: number,
+  windowMs: number,
+  now: Date = new Date(),
+): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  const windowStart = windowStartOf(now, windowMs);
+  const [row] = await withPlatform((tx) =>
+    tx
+      .select({ count: rateLimits.count })
+      .from(rateLimits)
+      .where(and(eq(rateLimits.key, key), eq(rateLimits.windowStart, windowStart))),
+  );
+  return { allowed: (row?.count ?? 0) < limit, retryAfterMs: Math.max(0, windowStart.getTime() + windowMs - now.getTime()) };
+}
+
 /** Gives one attempt back in the current window (never below zero). */
 export async function refund(key: string, windowMs: number, now: Date = new Date()): Promise<void> {
   await withPlatform((tx) =>
@@ -92,7 +109,7 @@ function envInt(name: string, fallback: number): number {
  */
 export const limits = {
   loginPerUser: () => envInt('RATE_LIMIT_LOGIN_USER', 10), // failed attempts / 15 min
-  loginPerIp: () => envInt('RATE_LIMIT_LOGIN_IP', 50), // failed attempts / 15 min
+  loginPerIp: () => envInt('RATE_LIMIT_LOGIN_IP', 100), // failed attempts / 15 min
   joinLookupPerIp: () => envInt('RATE_LIMIT_JOIN_LOOKUP', 60), // / 15 min
   joinSubmitPerIp: () => envInt('RATE_LIMIT_JOIN_SUBMIT', 20), // / hour
 };

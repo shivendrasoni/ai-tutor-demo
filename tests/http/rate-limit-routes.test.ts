@@ -61,21 +61,18 @@ describe('login throttling', () => {
     expect((await login(studentName, 'wrong-pass', '10.0.4.99')).status).toBe(401);
   });
 
-  it('successes are not refunded to the per-IP key: failures across usernames with interleaved successes still trip it', async () => {
-    // 25 failures + 25 successes from one IP use the 50-attempt budget; the 51st attempt is refused.
-    for (let i = 0; i < 25; i++) {
-      expect((await login(`nobody_${i}`, 'wrong-pass', '10.8.8.8')).status).toBe(401);
-      expect((await login(studentName, SEED_PASSWORD, '10.8.8.8')).status).toBe(200);
-    }
-    verifySpy.mockClear();
-    expect((await login('nobody_x', 'wrong-pass', '10.8.8.8')).status).toBe(429);
-    expect(verifySpy).not.toHaveBeenCalled();
+  it('successful logins never consume the per-IP budget: 150 successes from one IP all succeed', async () => {
+    for (let i = 0; i < 150; i++) expect((await login(studentName, SEED_PASSWORD, '10.8.8.8')).status).toBe(200);
   });
 
-  it('50 failed attempts from one IP across usernames → 429; other IPs unaffected', async () => {
-    for (let i = 0; i < 50; i++) expect((await login(`nobody_${i}`, 'wrong-pass', '10.9.9.9')).status).toBe(401);
+  it('100 failures across usernames from one IP → the 101st attempt is 429, even with interleaved successes', async () => {
+    for (let i = 0; i < 100; i++) {
+      expect((await login(`nobody_${i}`, 'wrong-pass', '10.9.9.9')).status).toBe(401);
+      if (i % 10 === 0) expect((await login(studentName, SEED_PASSWORD, '10.9.9.9')).status).toBe(200);
+    }
     verifySpy.mockClear();
     expect((await login('nobody_x', 'wrong-pass', '10.9.9.9')).status).toBe(429);
+    expect((await login(studentName, SEED_PASSWORD, '10.9.9.9')).status).toBe(429);
     expect(verifySpy).not.toHaveBeenCalled();
     expect((await login(studentName, SEED_PASSWORD, '10.9.9.10')).status).toBe(200);
   });

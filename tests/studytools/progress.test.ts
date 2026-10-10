@@ -153,4 +153,18 @@ describe('chapterProgress', () => {
     expect(typeof rows[0]!.max).toBe('number');
     expect(typeof rows[0]!.attempts).toBe('number');
   });
+  it('excludes removed students but keeps lapsed ones (their history is still meaningful)', async () => {
+    const secId = (await withPlatform((tx) => tx.select().from(sections)))[0]!;
+    const removed = await mkStudent(seed.a.schoolId, secId.branchId, secId.id, 'prog_removed');
+    const lapsed = await mkStudent(seed.a.schoolId, secId.branchId, secId.id, 'prog_lapsed');
+    await withPlatform(async (tx) => {
+      await tx.execute(sql`update student_profiles set status = 'removed' where user_id = ${removed}::uuid`);
+      await tx.execute(sql`update student_profiles set status = 'lapsed' where user_id = ${lapsed}::uuid`);
+    });
+    await graded(seed.a.schoolId, removed, S1, { [CH1]: { scored: 1, max: 1 } });
+    await graded(seed.a.schoolId, lapsed, S1, { [CH1]: { scored: 1, max: 1 } });
+    const rows = await chapterProgress(seed.a.schoolAdmin, { studentIds: [removed, lapsed] });
+    expect(ids(rows)).toEqual(new Set([lapsed]));
+    expect(ids(await chapterProgress(seed.a.schoolAdmin, {})).has(removed)).toBe(false);
+  });
 });

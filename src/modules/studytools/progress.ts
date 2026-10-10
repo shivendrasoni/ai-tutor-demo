@@ -40,7 +40,7 @@ function scopePredicate(actor: Actor): SQL {
 /**
  * Per-student, per-subject, per-chapter totals over graded attempts. Scoping is in SQL (RLS only isolates the school).
  * Titles come from the newest artifact's `params.chapterTitles` snapshot, so deleted chapters keep a title.
- * Rows are ordered by student, subject, chapter id.
+ * Removed students are excluded; lapsed students stay (their history is still meaningful). Rows are ordered by student, subject, chapter id.
  */
 export async function chapterProgress(
   actor: Actor,
@@ -77,6 +77,7 @@ export async function chapterProgress(
       cross join lateral jsonb_each(case when jsonb_typeof(att.by_chapter) = 'object' then att.by_chapter else '{}'::jsonb end) e
       where att.school_id = ${schoolId}::uuid
         and att.status = 'graded'
+        and sp.status <> 'removed'
         and ${sql.join(conds, sql` and `)}
       group by att.student_id, a.subject_id, e.key
       order by att.student_id, a.subject_id, e.key`);

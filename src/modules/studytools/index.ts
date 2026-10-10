@@ -20,3 +20,4 @@ export type { ArtifactType } from './schemas';
 export { getAttempt, saveAnswers, startAttempt, submitAttempt, type AttemptView, type ReviewQuestion } from './attempts';
 export { failPendingQuestions, finalizeAttempt } from './finalize';
 export { buildByChapter, clampScore, flattenQuestions, scoreMcq, type ByChapter, type Results } from './scoring';
+export { chapterProgress, type ChapterProgressRow } from './progress';

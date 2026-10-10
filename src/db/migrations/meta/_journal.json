@@ -50,6 +50,20 @@
       "when": 1791588347734,
       "tag": "0006_content_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791591332690,
+      "tag": "0007_giant_vulcan",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791591332934,
+      "tag": "0008_tutor_rls",
+      "breakpoints": true
     }
   ]
 }

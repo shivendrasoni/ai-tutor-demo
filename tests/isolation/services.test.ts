@@ -7,8 +7,8 @@ import { asc, eq, getTableName, sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform, withTenant } from '@/db/client';
 import {
-  branches, chunks, contentChapters, contentExclusions, contentItems, invites, payments, schools, sections, studentProfiles, subjects, teacherAssignments,
-  tenantTables, users,
+  branches, chunks, contentChapters, contentExclusions, contentItems, conversations, invites, messages, payments, schools, sections, skills, studentProfiles, subjects, teacherAssignments,
+  tenantTables, usageDaily, users,
 } from '@/db/schema';
 import {
   listPendingSubscriptions, listStudents, manualAddStudent, recordPayment, removeStudent, studentStatus,
@@ -251,6 +251,7 @@ describe('raw RLS isolation over tenantTables', () => {
   /** Seeds a payment, an invite and content rows for each school so every tenant table has rows for both. */
   async function seedAllTables() {
     await withPlatform(async (tx) => {
+      const [skill] = await tx.insert(skills).values({ key: 'iso', name: 'iso', kind: 'chat', instructions: 'i' }).returning();
       for (const s of [seed.a, seed.b]) {
         await tx.insert(payments).values({
           schoolId: s.schoolId, subscriptionId: s.subscriptionId, amountMinor: 100, currency: 'INR',
@@ -272,6 +273,9 @@ describe('raw RLS isolation over tenantTables', () => {
           text: 't', tokenEstimate: 1,
         });
         await tx.insert(contentExclusions).values({ schoolId: s.schoolId, branchId: s.branchId, contentItemId: item.id });
+        const [conv] = await tx.insert(conversations).values({ schoolId: s.schoolId, studentId: s.studentId, skillId: skill.id }).returning();
+        await tx.insert(messages).values({ schoolId: s.schoolId, conversationId: conv.id, role: 'user', content: 'hi' });
+        await tx.insert(usageDaily).values({ schoolId: s.schoolId, studentId: s.studentId, date: '2026-10-10', tokens: 1 });
       }
     });
   }

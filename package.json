@@ -17,8 +17,12 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.78",
+    "@ai-sdk/google": "^4.0.93",
     "@ai-sdk/openai": "^4.0.91",
+    "@ai-sdk/openai-compatible": "^3.0.67",
     "@aws-sdk/client-s3": "^3.1148.0",
+    "@mastra/core": "^1.75.0",
     "@node-rs/argon2": "^2.2.2",
     "ai": "^7.0.135",
     "drizzle-orm": "^0.45.4",

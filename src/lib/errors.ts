@@ -10,7 +10,9 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'VALIDATION'
   | 'INVITE_INVALID'
-  | 'STUDENT_REMOVED';
+  | 'STUDENT_REMOVED'
+  | 'BUDGET_EXCEEDED'
+  | 'TUTOR_BUSY';
 
 export class DomainError extends Error {
   code: ErrorCode;

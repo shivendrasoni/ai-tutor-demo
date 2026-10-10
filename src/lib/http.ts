@@ -20,6 +20,8 @@ const STATUS: Record<ErrorCode, number> = {
   STUDENT_REMOVED: 409,
   CODE_DISABLED: 410,
   INVITE_INVALID: 410,
+  BUDGET_EXCEEDED: 429,
+  TUTOR_BUSY: 503,
 };
 
 /** HTTP-only error (not a domain outcome), e.g. a missing/expired session. */

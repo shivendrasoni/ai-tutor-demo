@@ -106,10 +106,12 @@ describe('handleGradeJob', () => {
   });
 
   it('two grade jobs finishing concurrently finalize once with the right total', async () => {
-    useMockModels({ standard: mockModel([{ score: 1, feedback: 'f' }, { score: 3, feedback: 'f' }]) });
+    // Both jobs call the model concurrently, so which one consumes which scripted reply is scheduler-dependent. Use
+    // the same reply for both (2 fits both s0 = 2 marks and l0 = 5 marks) so the total never depends on call order.
+    useMockModels({ standard: mockModel([{ score: 2, feedback: 'f' }]) });
     await Promise.all(rec.current.grade.map((data) => handleGradeJob({ data })));
     const v = await getAttempt(student, attemptId);
-    expect(v).toMatchObject({ status: 'graded', score: 1 + 1 + 3 });
+    expect(v).toMatchObject({ status: 'graded', score: 1 + 2 + 2 });
     const gradedAt = (await row()).gradedAt;
     expect(gradedAt).not.toBeNull();
     // A second finalize has nothing to do and leaves graded_at untouched.

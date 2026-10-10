@@ -2,9 +2,12 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { withPlatform } from '@/db/client';
 import { skills } from '@/db/schema';
+import { resetDb } from '../helpers/db';
 import { getSkillByKey, listSkills, SEED_SKILLS, seedSkills, type SeedSkill } from '@/modules/tutor/skills';
 
 beforeAll(async () => {
+  // Exact-list assertions below: start from an empty skills table rather than whatever the previous file left (e.g. tutor-rls's 't').
+  await resetDb();
   await seedSkills();
 });
 afterEach(async () => {

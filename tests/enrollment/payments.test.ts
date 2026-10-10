@@ -47,7 +47,8 @@ describe('recordPayment vs removeStudent concurrency', () => {
       expect(await profileStatus(seed.a.studentId)).toBe('removed');
       expect((await subRow(seed.a.subscriptionId)).status).toBe('cancelled');
     }
-  });
+    // 10 rounds of reset + seed (argon2 hashing) + a race: inherently slow, so give it room under CPU load.
+  }, 60_000);
 });
 
 describe('recordPayment', () => {

@@ -93,6 +93,8 @@ async function login(page: Page): Promise<void> {
 }
 
 test('study hub, practice test, notes and mock exam', async ({ page }) => {
+  // One long journey through ~8 cold-compiled `next dev` routes; the 60 s default is too tight on a loaded machine.
+  test.setTimeout(120_000);
   await login(page);
   await expect(page.getByRole('link', { name: 'Study' })).toBeVisible();
   await page.getByRole('link', { name: 'Study' }).click();
@@ -112,7 +114,7 @@ test('study hub, practice test, notes and mock exam', async ({ page }) => {
   await withPlatform((tx) =>
     tx.update(artifacts).set({ status: 'ready', content: { title: 'Fresh test', questions: [], sources: {} } }).where(eq(artifacts.id, pending.id)),
   );
-  await expect(page.getByText('Generating…')).toHaveCount(0, { timeout: 5_000 });
+  await expect(page.getByText('Generating…')).toHaveCount(0, { timeout: 20_000 });
   await expect(page.getByText('Ready').first()).toBeVisible();
 
   // Practice test: open, start, answer, autosave, navigate, submit.
@@ -137,7 +139,7 @@ test('study hub, practice test, notes and mock exam', async ({ page }) => {
   await page.getByRole('button', { name: 'Submit' }).click();
   await page.getByRole('button', { name: 'Yes, submit' }).click();
   await expect(page).toHaveURL(/\/learn\/study\/attempt\/[0-9a-f-]{36}$/);
-  await expect(page.getByRole('heading', { name: 'Graded' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: 'Graded' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('2 / 5')).toBeVisible();
   await expect(page.getByText('Chapter 1: 1 / 2')).toBeVisible();
   await expect(page.getByText('Chapter 2: 1 / 3')).toBeVisible();

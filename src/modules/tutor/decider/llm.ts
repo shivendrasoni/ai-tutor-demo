@@ -37,6 +37,7 @@ export class LlmDecider implements Decider {
       model: this.o.model,
       output: Output.object({ schema: z.object(shape) }),
       temperature: 0,
+      maxRetries: 0,
       system:
         'You classify a student conversation for a school tutor. Answer every question with probabilities only.',
       prompt: `Conversation:\n${state}\n\nQuestions:\n${lines.join('\n')}`,

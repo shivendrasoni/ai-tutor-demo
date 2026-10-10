@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm';
+import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import * as usageMod from '@/modules/tutor/usage';
 import { withPlatform } from '@/db/client';
 import { skills, studentProfiles, usageDaily } from '@/db/schema';
 import type { ChunkHit } from '@/modules/content';
@@ -163,5 +165,22 @@ describe('runSkillStructured', () => {
     useTutorFakes({ model: model as never });
     const r = await run({ tier: 'advanced' });
     expect(r.usage.model).toBe('openai/skill-adv');
+  });
+
+  it('a usage-recording DB failure propagates as-is and causes no second model call', async () => {
+    const model = scripted([{ json: good }]);
+    useTutorFakes({ model: model as never });
+    const spy = vi.spyOn(usageMod, 'recordUsage').mockRejectedValueOnce(new Error('db down'));
+    await expect(run()).rejects.toThrow('db down');
+    spy.mockRestore();
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
+  it('retryable provider errors are not retried by the SDK: exactly 2 calls before TUTOR_BUSY', async () => {
+    const err = new APICallError({ message: 'overloaded', url: 'x', requestBodyValues: {}, statusCode: 503, isRetryable: true });
+    const model = scripted([{ error: err }]);
+    useTutorFakes({ model: model as never });
+    await expect(run()).rejects.toMatchObject({ code: 'TUTOR_BUSY' });
+    expect(model.doGenerateCalls).toHaveLength(2);
   });
 });

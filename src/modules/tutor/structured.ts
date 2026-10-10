@@ -83,23 +83,27 @@ export async function runSkillStructured<T>(
     let schemaError: string | null = null;
     let value: T | undefined;
     let succeeded = false;
-    // Provider errors: one retry, then TUTOR_BUSY.
+    // Provider errors: one retry, then TUTOR_BUSY. Usage recording happens outside this handling.
+    let res: Awaited<ReturnType<typeof generateText>> | undefined;
+    let failedUsage: { inputTokens?: number; outputTokens?: number } | undefined;
     for (let tries = 0; ; tries++) {
       try {
-        const res = await generateText({ model, system, prompt, output: Output.object({ schema: a.schema }), temperature: 0, providerOptions: skill.providerOptions as never });
-        await record(res.usage);
-        value = res.output as T;
-        succeeded = true;
+        res = await generateText({ model, system, prompt, output: Output.object({ schema: a.schema }), temperature: 0, maxRetries: 0, providerOptions: skill.providerOptions as never });
         break;
       } catch (e) {
         if (NoObjectGeneratedError.isInstance(e)) {
-          await record(e.usage);
+          failedUsage = e.usage;
           schemaError = e.cause instanceof Error ? e.cause.message : e.message;
           break;
         }
         console.error('[tutor] structured generation failed', e);
         if (tries === 1) throw new DomainError('TUTOR_BUSY', BUSY_MESSAGE);
       }
+    }
+    await record(res ? res.usage : failedUsage);
+    if (res) {
+      value = res.output as T;
+      succeeded = true;
     }
     if (succeeded) {
       return { value: value as T, usage: { tokensIn, tokensOut, cost: computeCost(spec, tokensIn, tokensOut), model: spec } };

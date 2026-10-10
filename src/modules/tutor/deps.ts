@@ -1,11 +1,13 @@
 import { listVisibleChapters, listVisibleSubjects, searchChunks } from '@/modules/content';
+import { selectDecider } from './decider/select';
 import type { Decider } from './decider/types';
 import { ModelRegistry } from './models/registry';
 import type { AgentRunner } from './runner/types';
 
 export type TutorDeps = {
   registry: ModelRegistry;
-  decider: Decider;
+  decider: Decider | null;
+  deciderProvider: 'jev' | 'llm' | 'none';
   runner: AgentRunner;
   content: { search: typeof searchChunks; subjects: typeof listVisibleSubjects; chapters: typeof listVisibleChapters };
   now: () => Date;
@@ -13,12 +15,17 @@ export type TutorDeps = {
 
 type Factories = { [K in keyof TutorDeps]: () => TutorDeps[K] };
 
+let selected: ReturnType<typeof selectDecider> | undefined;
+/** One selection shared by `decider` and `deciderProvider` so they always agree. */
+function selection() {
+  return (selected ??= selectDecider({ registry: resolve('registry') }));
+}
+
 const factories: Factories = {
   registry: () => new ModelRegistry(),
-  // Tasks 3 and 7 replace these with selectDecider() and new MastraRunner().
-  decider: () => {
-    throw new Error('not configured');
-  },
+  decider: () => selection().decider,
+  deciderProvider: () => selection().provider,
+  // Task 7 replaces this with new MastraRunner().
   runner: () => {
     throw new Error('not configured');
   },
@@ -44,6 +51,9 @@ export function getDeps(): TutorDeps {
     get decider() {
       return resolve('decider');
     },
+    get deciderProvider() {
+      return resolve('deciderProvider');
+    },
     get runner() {
       return resolve('runner');
     },
@@ -63,4 +73,5 @@ export function configureTutor(p: Partial<TutorDeps>): void {
 export function resetTutorConfig(): void {
   override = {};
   cached = {};
+  selected = undefined;
 }

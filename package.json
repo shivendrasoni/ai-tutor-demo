@@ -15,7 +15,10 @@
     "job:lapse": "tsx scripts/lapse.ts",
     "seed:skills": "tsx scripts/seed-skills.ts",
     "worker": "tsx src/worker.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "eval:tutor": "tsx scripts/eval/tutor.ts",
+    "eval:socratic": "tsx scripts/eval/socratic.ts",
+    "eval:routing": "tsx scripts/eval/routing.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.78",

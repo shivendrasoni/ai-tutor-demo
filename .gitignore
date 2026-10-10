@@ -13,3 +13,4 @@ coverage
 .blob/
 .blob-test/
 .data/
+evals/reports/*.md

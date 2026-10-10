@@ -1,0 +1,3 @@
+{"message":"Why do plants need sunlight?","studentUsername":"student1","subject":"Biology","chapterTitle":"Photosynthesis","intent":"learn_concept","difficulty":"recall","outOfSyllabus":false}
+{"message":"Solve 2x + 3 = 11 and show me every step","studentUsername":"student1","subject":"Mathematics","intent":"solve_problem","difficulty":"apply","outOfSyllabus":false}
+{"message":"Who won the cricket match yesterday?","studentUsername":"student1","subject":"none","intent":"off_topic","difficulty":"recall","outOfSyllabus":false}

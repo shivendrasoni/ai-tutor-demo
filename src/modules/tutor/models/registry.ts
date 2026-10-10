@@ -4,6 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
 import { llmModel } from '../config';
+import { createMockModel } from './mock';
 
 /** The model object the installed providers return (ai@7 / provider spec v4). */
 export type TutorModel = Extract<LanguageModel, { specificationVersion: 'v4' }>;
@@ -23,6 +24,8 @@ export class ModelRegistry {
     const provider = spec.slice(0, i);
     const id = spec.slice(i + 1);
     switch (provider) {
+      case 'mock':
+        return createMockModel(id) as TutorModel; // always available, no key
       case 'openai':
         return this.need('OPENAI_API_KEY', spec, () => createOpenAI()(id));
       case 'anthropic':

@@ -21,6 +21,7 @@ const serverEnv: Record<string, string> = {
   APP_URL,
   EMBEDDER: 'fake',
   AI_MOCK: '1',
+  DECIDER: 'mock', // .env.test sets DECIDER=none; the e2e server exercises the MockDecider routing instead
   BLOB_DIR: process.env.BLOB_DIR,
   NEXT_TELEMETRY_DISABLED: '1',
   // Every spec logs in / joins from the same IP, so the production rate limits (see src/lib/rate-limit.ts)

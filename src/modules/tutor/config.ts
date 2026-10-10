@@ -21,7 +21,7 @@ export function modelPrices(): Record<string, ModelPrice> {
 
 export function llmModel(tier: 'standard' | 'advanced'): string | undefined {
   const v = tier === 'standard' ? process.env.LLM_STANDARD_MODEL : process.env.LLM_ADVANCED_MODEL;
-  return v || undefined;
+  return v || (aiMockMode() ? `mock/${tier}` : undefined);
 }
 
 export type DeciderMode = 'jev' | 'llm' | 'mock' | 'none';

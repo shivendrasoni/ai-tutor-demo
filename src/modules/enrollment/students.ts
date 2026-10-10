@@ -8,7 +8,7 @@ import type { Actor, StudentStatus } from '@/modules/tenancy/actor';
 import { hashPassword, assertPasswordStrength } from '@/modules/tenancy/auth/passwords';
 import { canManageBranch, runAs } from '@/modules/tenancy/authz';
 import { revokeUserSessions } from '@/modules/tenancy/auth/sessions';
-import { effectiveStudentStatus } from './lapse';
+import { effectiveStatusSql, effectiveStudentStatus } from './lapse';
 
 export type StudentRow = {
   userId: string;
@@ -35,6 +35,7 @@ const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
 export async function listStudents(
   actor: Actor,
   filters: { schoolId?: string; branchId?: string; grade?: number; status?: StudentStatus },
+  now: Date = new Date(),
 ): Promise<StudentRow[]> {
   const parsed = FilterSchema.safeParse(filters ?? {});
   if (!parsed.success) {
@@ -70,7 +71,8 @@ export async function listStudents(
   const conds: SQL[] = [eq(studentProfiles.schoolId, schoolId)];
   if (branchId) conds.push(eq(studentProfiles.branchId, branchId));
   if (f.grade !== undefined) conds.push(eq(studentProfiles.grade, f.grade));
-  if (f.status) conds.push(eq(studentProfiles.status, f.status));
+  const effective = effectiveStatusSql(now);
+  if (f.status) conds.push(sql`${effective} = ${f.status}`);
 
   const rows = await runAs(actor, (tx) =>
     tx
@@ -82,7 +84,7 @@ export async function listStudents(
         branchName: branches.name,
         grade: studentProfiles.grade,
         sectionName: sections.name,
-        status: studentProfiles.status,
+        status: effective,
         planName: plans.name,
         periodEnd: subscriptions.currentPeriodEnd,
       })

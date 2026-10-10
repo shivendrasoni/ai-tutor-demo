@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { closeDb } from '@/db/client';
+import { eq } from 'drizzle-orm';
+import { closeDb, withPlatform } from '@/db/client';
+import { plans, studentProfiles, subscriptions } from '@/db/schema';
 import { enrollmentSummary, listBranches } from '@/modules/analytics';
 import { createEmptySchool, seedAnalyticsWorld, type World } from '../helpers/analytics-seed';
 import { resetDb } from '../helpers/db';
@@ -67,5 +69,30 @@ describe('listBranches', () => {
     expect(own.map((b) => b.branchId)).toEqual([w.a.branchId]);
     await expect(listBranches(w.a.teacher)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(listBranches(w.a.student)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+
+describe('enrollmentSummary effective status (read-time lapse)', () => {
+  it('counts students whose period has ended as lapsed, not active, without writing', async () => {
+    const now = new Date();
+    // The seed's active students have no subscription; give them one ending in 30 days.
+    await withPlatform(async (tx) => {
+      const [plan] = await tx.insert(plans).values({ name: 'P', interval: 'monthly', priceMinor: 1 }).returning();
+      const act = await tx.select().from(studentProfiles).where(eq(studentProfiles.status, 'active'));
+      for (const a of act) {
+        await tx.insert(subscriptions).values({
+          schoolId: a.schoolId, studentId: a.userId, planId: plan.id, status: 'active',
+          currentPeriodEnd: new Date(now.getTime() + 30 * 86_400_000),
+        });
+      }
+    });
+    const before = await enrollmentSummary(w.a.schoolAdmin, {}, now);
+    const total = (rows: Rows, k: 'active' | 'lapsed') => rows.reduce((n, r) => n + r[k], 0);
+    const later = new Date(now.getTime() + 60 * 86_400_000);
+    const after = await enrollmentSummary(w.a.schoolAdmin, {}, later);
+    expect(total(before, 'active')).toBeGreaterThan(0);
+    expect(total(after, 'active')).toBe(0);
+    expect(total(after, 'lapsed')).toBe(total(before, 'active') + total(before, 'lapsed'));
+    expect(total(await enrollmentSummary(w.a.schoolAdmin, {}), 'active')).toBe(total(before, 'active'));
   });
 });

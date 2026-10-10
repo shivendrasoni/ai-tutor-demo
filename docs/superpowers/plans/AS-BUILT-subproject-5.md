@@ -4,7 +4,7 @@ Later plans must use these real names. They take precedence over plan 5's text w
 
 ## Public exports of `src/modules/analytics/index.ts`
 - Windows: `windowStart(now, days)`, `windowStartDate`. `days` is 7 or 30: the last N UTC calendar days including today, starting at UTC midnight.
-- Enrollment: `enrollmentSummary`, `listBranches`; types `EnrollmentRow`, `BranchListing`.
+- Enrollment: `enrollmentSummary(actor, { schoolId? }, now = new Date())`, `listBranches`; types `EnrollmentRow`, `BranchListing`. The pending/active/lapsed/removed counts use the read-time effective status (`effectiveStatusSql` from the enrollment module): an `active` student whose subscription period ended before `now` counts as `lapsed`. Read-only, no rows are written.
 - Usage: `studentUsage(actor, { sectionId?, subjectId?, now? })`; type `StudentUsageRow`. Counts the student's own messages (7d, 30d, last active). A teacher-only actor passing a section and subject needs a `teacher_assignments` row for that exact pair, otherwise `FORBIDDEN`. Admins are not limited by assignments.
 - Progress: `sectionProgress`, `listTeacherAssignments`; types `SectionProgress`, `TeacherAssignment`. A chapter is weak when `scored / max < 0.5` with at least one graded attempt; no graded attempt means `ratio: null`, never weak.
 - Platform-only (`requirePlatform` first, `FORBIDDEN` for everyone else): `costSummary`, `routingStats`, `listFlagged`, `getFlaggedConversation`, `markReviewed`, `listSchools`, `platformOverview`; types `CostSummary`, `RoutingStats`, `FlaggedRow`, `SchoolListing`.

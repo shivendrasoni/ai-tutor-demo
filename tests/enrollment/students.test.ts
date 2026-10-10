@@ -226,3 +226,29 @@ describe('resetStudentPassword', () => {
     expect(await codeOf(resetStudentPassword(seed.b.schoolAdmin, seed.b.studentId, 'valid-password'))).toBe('VALIDATION');
   });
 });
+
+describe('listStudents effective status (read-time lapse)', () => {
+  const DAY = 86_400_000;
+  const payA = () =>
+    recordPayment(seed.platform, { subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt: new Date() });
+
+  it('shows lapsed, and the filters follow it, once the period has ended; writes nothing', async () => {
+    await payA();
+    const later = new Date(Date.now() + 60 * DAY);
+    const [r] = await listStudents(seed.a.schoolAdmin, {}, later);
+    expect(r.status).toBe('lapsed');
+    expect(await listStudents(seed.a.schoolAdmin, { status: 'active' }, later)).toHaveLength(0);
+    expect((await listStudents(seed.a.schoolAdmin, { status: 'lapsed' }, later)).map((x) => x.userId)).toEqual([seed.a.studentId]);
+    expect((await profile(seed.a.studentId)).status).toBe('active');
+    expect((await subOf(seed.a.studentId)).status).toBe('active');
+  });
+
+  it('keeps active within the period, and never lapses pending or removed students', async () => {
+    await payA();
+    expect((await listStudents(seed.a.schoolAdmin, { status: 'active' })).map((x) => x.userId)).toEqual([seed.a.studentId]);
+    expect(await listStudents(seed.a.schoolAdmin, { status: 'lapsed' })).toHaveLength(0);
+    await withPlatform((tx) => tx.update(studentProfiles).set({ status: 'removed' }).where(eq(studentProfiles.userId, seed.a.studentId)));
+    const later = new Date(Date.now() + 60 * DAY);
+    expect((await listStudents(seed.a.schoolAdmin, {}, later))[0].status).toBe('removed');
+  });
+});

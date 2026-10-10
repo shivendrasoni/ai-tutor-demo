@@ -2,14 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import styles from '../../public.module.css';
-import { apiFetch, credentialError, GENERIC_ERROR, NETWORK_ERROR, SIGNUP_SUCCESS, suggestionsOf } from '../../_lib/api';
+import { apiFetch, credentialError, SIGNUP_SUCCESS, suggestionsOf } from '../../_lib/api';
 import { ErrorRegion, PasswordField, PlanPicker, UsernameField, usePlans } from '../../_lib/fields';
-
-type Invite = { studentName: string; schoolName: string; branchName: string; grade: number };
-type Load = { kind: 'loading' } | { kind: 'invalid' } | { kind: 'error'; message: string } | { kind: 'ready'; invite: Invite };
-
-const EXPIRED = 'This invite link has expired or was already used. Ask your school for a new one.';
-const isInvalid = (status: number) => status === 404 || status === 410;
+import { INVITE_UNAVAILABLE, inviteLoadState, type Invite, type Load } from './state';
 
 export default function InviteFlow({ token }: { token: string }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
@@ -19,9 +14,7 @@ export default function InviteFlow({ token }: { token: string }) {
     let live = true;
     void apiFetch<Invite>(`/api/invite/${encodeURIComponent(token)}`).then((r) => {
       if (!live) return;
-      if (r.ok) setLoad({ kind: 'ready', invite: r.data });
-      else if (isInvalid(r.error.status)) setLoad({ kind: 'invalid' });
-      else setLoad({ kind: 'error', message: r.error.code === 'NETWORK' ? NETWORK_ERROR : GENERIC_ERROR });
+      setLoad(inviteLoadState(r));
     });
     return () => {
       live = false;
@@ -40,8 +33,8 @@ export default function InviteFlow({ token }: { token: string }) {
   if (load.kind === 'invalid') {
     return (
       <>
-        <h1 className={styles.title}>Invite unavailable</h1>
-        <p className={styles.error} role="alert">{EXPIRED}</p>
+        <h1 className={styles.title}>{INVITE_UNAVAILABLE.title}</h1>
+        <p className={styles.error} role="alert">{INVITE_UNAVAILABLE.copy}</p>
       </>
     );
   }

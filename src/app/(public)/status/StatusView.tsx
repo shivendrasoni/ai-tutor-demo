@@ -3,18 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '../public.module.css';
-import { apiFetch, GENERIC_ERROR, NETWORK_ERROR } from '../_lib/api';
+import { apiFetch } from '../_lib/api';
 import { ErrorRegion } from '../_lib/fields';
+import { resolveStatus, type Me, type Resolved, type StatusData } from './resolve';
 
-type Me = { name: string; roles: string[]; isPlatformAdmin: boolean };
-type Status = { status: 'pending_payment' | 'active' | 'lapsed' | 'removed'; planName: string | null; periodEnd: string | null };
 type View = { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'text'; text: string };
-
-const COPY: Record<string, string> = {
-  pending_payment:
-    "Your account is waiting for activation. Once your payment is confirmed you'll be able to start learning.",
-  lapsed: 'Your plan has expired. Please contact us to renew.',
-};
 
 export default function StatusView() {
   const router = useRouter();
@@ -23,35 +16,18 @@ export default function StatusView() {
 
   useEffect(() => {
     let live = true;
-    const fail = (code: string) =>
-      live && setView({ kind: 'error', message: code === 'NETWORK' ? NETWORK_ERROR : GENERIC_ERROR });
     (async () => {
+      const apply = (r: Resolved) => {
+        if (r.kind === 'redirect') router.replace(r.to); // keep showing "Loading…" while navigating
+        else if (r.kind !== 'need-status') setView(r);
+      };
       const me = await apiFetch<Me>('/api/me');
       if (!live) return;
-      if (!me.ok) {
-        if (me.error.status === 401) router.replace('/login');
-        else fail(me.error.code);
-        return;
-      }
-      if (!me.data.roles.includes('student')) {
-        setView({ kind: 'text', text: `Signed in as ${me.data.name}.` });
-        return;
-      }
-      const st = await apiFetch<Status>('/api/me/status');
+      const first = resolveStatus(me);
+      if (first.kind !== 'need-status') return apply(first);
+      const st = await apiFetch<StatusData>('/api/me/status');
       if (!live) return;
-      if (!st.ok) {
-        if (st.error.status === 401) router.replace('/login');
-        else if (st.error.status === 403) setView({ kind: 'text', text: `Signed in as ${me.data.name}.` });
-        else fail(st.error.code);
-        return;
-      }
-      if (st.data.status === 'active') {
-        router.replace('/learn'); // keep showing "Loading…" while navigating
-        return;
-      }
-      const text = COPY[st.data.status];
-      if (text) setView({ kind: 'text', text });
-      else fail('INTERNAL');
+      apply(resolveStatus(me, st));
     })();
     return () => {
       live = false;

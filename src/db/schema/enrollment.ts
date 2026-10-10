@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 import { branches, schools, sections } from './tenancy';
 
@@ -69,7 +69,13 @@ export const payments = pgTable(
     recordedBy: uuid('recorded_by').notNull().references(() => users.id),
     createdAt: createdAt(),
   },
-  (t) => [check('payments_method_check', sql`${t.method} in ('manual_link','gateway')`)],
+  (t) => [
+    check('payments_method_check', sql`${t.method} in ('manual_link','gateway')`),
+    // Idempotency: one payment per (subscription, external reference).
+    uniqueIndex('payments_subscription_external_ref_unique')
+      .on(t.subscriptionId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
+  ],
 );
 
 export const invites = pgTable('invites', {

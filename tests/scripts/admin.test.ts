@@ -76,6 +76,20 @@ describe('scripts/admin run()', () => {
     expect(p.status).toBe('active');
     expect((await cli('pending')).json()).toEqual([]);
 
+    // The CLI cannot bypass the paid-at bounds or the duplicate-reference guard.
+    const future = await cli(
+      'record-payment', '--subscription', subscriptionId, '--amount-minor', '1',
+      '--paid-at', new Date(Date.now() + 86_400_000).toISOString(), '--as', 'ops_test',
+    );
+    expect(future.code).toBe(1);
+    expect(future.err.join('\n')).toMatch(/VALIDATION.*future/);
+    const dupe = await cli(
+      'record-payment', '--subscription', subscriptionId, '--amount-minor', '49900',
+      '--ref', 'UPI-1', '--paid-at', '2026-10-02T00:00:00Z', '--as', 'ops_test',
+    );
+    expect(dupe.code).toBe(1);
+    expect(dupe.err.join('\n')).toMatch(/duplicate_payment/);
+
     const all = [pa, school, branch, plan, staff, pending, paid].flatMap((r) => [...r.out, ...r.err]).join('\n');
     expect(all).not.toMatch(/change-me-now|teacher-pass-1/);
   });

@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
 import { payments, sessions, studentProfiles, subscriptions, users } from '@/db/schema';
 import { recordPayment } from '@/modules/enrollment/payments';
+import { addInterval } from '@/modules/enrollment/periods';
 import { listStudents, removeStudent, studentStatus } from '@/modules/enrollment/students';
 import { login, resolveActor } from '@/modules/tenancy';
 import { createSession } from '@/modules/tenancy/auth/sessions';
@@ -39,12 +40,13 @@ describe('listStudents', () => {
   });
 
   it('periodEnd populated after payment; null planName/sectionName when absent', async () => {
+    const paidAt = new Date();
     await recordPayment(seed.platform, {
-      subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt: new Date('2027-01-10T00:00:00Z'),
+      subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt,
     });
     await withPlatform((tx) => tx.update(studentProfiles).set({ sectionId: null }).where(eq(studentProfiles.userId, seed.a.studentId)));
     const [r] = await listStudents(seed.a.schoolAdmin, { status: 'active' });
-    expect(r.periodEnd?.toISOString()).toBe('2027-02-10T00:00:00.000Z');
+    expect(r.periodEnd?.toISOString()).toBe(addInterval(paidAt, 'monthly').toISOString());
     expect(r.sectionName).toBeNull();
     await withPlatform(async (tx) => {
       await tx.delete(payments);
@@ -170,12 +172,13 @@ describe('studentStatus', () => {
   });
 
   it('returns periodEnd once active', async () => {
+    const paidAt = new Date();
     await recordPayment(seed.platform, {
-      subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt: new Date('2027-01-10T00:00:00Z'),
+      subscriptionId: seed.a.subscriptionId, amountMinor: 1, currency: 'INR', paidAt,
     });
     const s = await studentStatus(seed.a.student);
     expect(s.status).toBe('active');
-    expect(s.periodEnd?.toISOString()).toBe('2027-02-10T00:00:00.000Z');
+    expect(s.periodEnd?.toISOString()).toBe(addInterval(paidAt, 'monthly').toISOString());
   });
 
   it('non-students are FORBIDDEN', async () => {

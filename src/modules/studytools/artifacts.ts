@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
-import { withTenant } from '@/db/client';
+import { withTenant, type Tx } from '@/db/client';
 import { artifacts, attempts } from '@/db/schema';
 import { DomainError } from '@/lib/errors';
 import { listVisibleChapters, listVisibleSubjects, studentScope } from '@/modules/content';
@@ -19,6 +19,21 @@ const MAX_QUESTIONS = 30;
 const DEFAULT_QUESTIONS = 10;
 const TYPES: readonly ArtifactType[] = ['practice_test', 'mock_exam', 'study_notes', 'last_night_notes'];
 const DAY_MS = 86_400_000;
+export const GENERATING_STALE_MS = 15 * 60_000;
+
+/** Lazy reaper: the student's own artifacts stuck `generating` (lost job, crash before enqueue) are marked failed. */
+async function reapStaleGenerating(tx: Tx, studentId: string): Promise<void> {
+  await tx
+    .update(artifacts)
+    .set({ status: 'failed', error: 'GENERATION_FAILED', content: null })
+    .where(
+      and(
+        eq(artifacts.studentId, studentId),
+        eq(artifacts.status, 'generating'),
+        lt(artifacts.createdAt, new Date(now().getTime() - GENERATING_STALE_MS)),
+      ),
+    );
+}
 
 export type RequestArtifactInput = {
   type: ArtifactType;
@@ -242,6 +257,7 @@ export async function getArtifact(actor: Actor, id: string): Promise<ArtifactDet
   const scope = await studentScope(actor);
   if (!UUID_RE.test(id)) throw new DomainError('NOT_FOUND');
   const { row, mine } = await withTenant(scope.schoolId, async (tx) => {
+    await reapStaleGenerating(tx, actor.userId);
     const [r] = await tx.select().from(artifacts).where(and(eq(artifacts.id, id), eq(artifacts.studentId, actor.userId)));
     if (!r) return { row: null, mine: [] };
     const list = await tx
@@ -262,6 +278,7 @@ export async function getArtifact(actor: Actor, id: string): Promise<ArtifactDet
 export async function listArtifacts(actor: Actor, filter: { type?: ArtifactType } = {}): Promise<ArtifactSummary[]> {
   const scope = await studentScope(actor);
   return withTenant(scope.schoolId, async (tx) => {
+    await reapStaleGenerating(tx, actor.userId);
     const rows = await tx
       .select()
       .from(artifacts)

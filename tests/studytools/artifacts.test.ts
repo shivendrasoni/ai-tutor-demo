@@ -224,3 +224,30 @@ describe('listArtifacts', () => {
     expect(await listArtifacts(seed.b.student, { type: 'study_notes' })).toEqual([]);
   });
 });
+
+describe('stale generating reaper', () => {
+  const T0 = new Date('2026-03-01T10:00:00Z');
+  const GENERATING_STALE_MS = 15 * 60_000;
+  const gen = (studentId: string, schoolId = seed.a.schoolId) =>
+    insertArtifact(schoolId, studentId, subjectId, { status: 'generating', content: null, createdAt: T0 });
+
+  it('getArtifact marks an own artifact generating for 15+ minutes as failed GENERATION_FAILED', async () => {
+    const art = await gen(seed.a.student.userId!);
+    setNow(() => new Date(T0.getTime() + GENERATING_STALE_MS - 1));
+    expect((await getArtifact(seed.a.student, art.id)).status).toBe('generating');
+    setNow(() => new Date(T0.getTime() + GENERATING_STALE_MS + 1));
+    expect(await getArtifact(seed.a.student, art.id)).toMatchObject({ status: 'failed', error: 'GENERATION_FAILED' });
+    expect(await rowOf(art.id)).toMatchObject({ status: 'failed', error: 'GENERATION_FAILED' });
+  });
+
+  it('listArtifacts reaps too, only for the caller, and leaves ready artifacts alone', async () => {
+    const mine = await gen(seed.a.student.userId!);
+    const ready = await insertArtifact(seed.a.schoolId, seed.a.student.userId!, subjectId, { createdAt: T0 });
+    const other = await gen(seed.b.student.userId!, seed.b.schoolId);
+    setNow(() => new Date(T0.getTime() + GENERATING_STALE_MS + 1));
+    const list = await listArtifacts(seed.a.student);
+    expect(list.find((a) => a.id === mine.id)!.status).toBe('failed');
+    expect(list.find((a) => a.id === ready.id)!.status).toBe('ready');
+    expect((await rowOf(other.id)).status).toBe('generating');
+  });
+});

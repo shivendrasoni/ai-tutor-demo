@@ -18,8 +18,10 @@ export {
   findBranchByCode,
   listSectionsForBranch,
   listSubjects,
+  listTeachers,
   rotateBranchCode,
   setBranchCodeEnabled,
   type BranchByCode,
+  type TeacherListing,
   type StaffRole,
 } from './service';

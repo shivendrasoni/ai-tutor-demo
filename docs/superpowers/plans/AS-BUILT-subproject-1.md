@@ -13,6 +13,7 @@ This is merged on `main` with 182 tests passing. Later plans must use these **re
   - `createSession`, `revokeSession`, `revokeUserSessions`, `purgeExpiredSessions(cutoff)`, `SESSION_TTL_MS`
   - `assertUsernameFree`, `isUsernameTaken`, `validateCredentials`, `withUsernameTakenHandling`
   - `BRANCH_CODE_ALPHABET`, `generateBranchCode`, `normalizeBranchCode`
+  - `listTeachers(actor, schoolId?)` -> `TeacherListing[] { userId, name, username, branchId, branchName }` (school_admin: whole school; branch_admin: own branch; platform admin must pass `schoolId`; others FORBIDDEN), `listSubjects(actor, schoolId?)` (optional `schoolId` narrows a platform admin's listing)
   - `assertGrade`, `assignTeacher`, `createBranch`, `createSchool`, `createSection`, `createStaffUser`, `createSubject`, `findBranchByCode`, `listSectionsForBranch`, `rotateBranchCode`, `setBranchCodeEnabled`
   - types `BranchByCode`, `StaffRole`
 - `src/modules/enrollment/index.ts`:
@@ -71,3 +72,7 @@ This is merged on `main` with 182 tests passing. Later plans must use these **re
 - **CLI:** `pnpm admin reset-password --username <student> [--password <p> | ADMIN_PASSWORD env] [--as <platform admin>]`.
 - **Memberships:** a non-platform user belongs to one school (not enforced by the schema); `loadActor` picks the oldest membership by `(created_at, id)` if there are several.
 - **Housekeeping:** `pnpm job:lapse` (`runLapse(now)` in `scripts/lapse.ts`) also deletes rate-limit windows older than 1 day and sessions that expired more than 7 days ago, and prints `{ lapsed, purgedRateLimits, purgedSessions }`.
+
+## School setup (CLI)
+- `pnpm admin create-section --branch <id> --grade <5-12> --name <n>` -> `{ sectionId }`; `create-subject --school <id> --name <n>` -> `{ subjectId }`; `assign-teacher --teacher <username> --section <id> --subject <id>` -> `{ teacher, sectionId, subjectId }` (idempotent); `list-school --school <id>` -> `{ school, branches: [{ id, name, sections }], subjects, teachers }` with ids (platform admin only, no credentials). All accept `--as`. Tests in `tests/scripts/admin.test.ts`.
+- The same operations are available to school/branch admins through `/school` Setup and `POST /api/school/{sections,subjects,teachers,assignments}` (see AS-BUILT-subproject-5.md). Isolation tests: `tests/isolation/school-setup.test.ts`.

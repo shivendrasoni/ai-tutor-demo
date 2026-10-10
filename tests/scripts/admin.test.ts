@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { memberships, payments, sessions, studentProfiles, users } from '@/db/schema';
+import { memberships, payments, sessions, studentProfiles, teacherAssignments, users } from '@/db/schema';
 import { signupWithCode } from '@/modules/enrollment';
 import { run } from '../../scripts/admin';
 import { login } from '@/modules/tenancy';
@@ -127,6 +127,54 @@ describe('scripts/admin run()', () => {
     const staff = await withPlatform((tx) => tx.select().from(users).where(eq(users.id, seed.a.teacherId)));
     expect((await cli('reset-password', '--username', staff[0].username!, '--password', 'valid-pass-1', '--as', 'ops_pw')).code).toBe(1);
     expect((await cli('reset-password', '--password', 'valid-pass-1')).code).toBe(2); // --username required
+  });
+
+  it('school setup commands: create-section, create-subject, assign-teacher, list-school', async () => {
+    await cli('create-platform-admin', '--username', 'ops_setup', '--password', 'change-me-now', '--name', 'Ops');
+    const { schoolId } = (await cli('create-school', '--name', 'Setup School', '--board', 'CBSE', '--as', 'ops_setup')).json();
+    const { branchId } = (await cli('create-branch', '--school', schoolId, '--name', 'Main', '--as', 'ops_setup')).json();
+    await cli(
+      'create-staff', '--school', schoolId, '--branch', branchId, '--role', 'teacher',
+      '--username', 'Setup_Teacher', '--password', 'teacher-pass-1', '--name', 'Tess Teacher', '--as', 'ops_setup',
+    );
+
+    const sec = await cli('create-section', '--branch', branchId, '--grade', '8', '--name', '8-B', '--as', 'ops_setup');
+    expect(sec.code).toBe(0);
+    const { sectionId } = sec.json();
+    const dupSec = await cli('create-section', '--branch', branchId, '--grade', '8', '--name', '8-B');
+    expect(dupSec.code).toBe(1);
+    expect(dupSec.err.join('\n')).toMatch(/VALIDATION/);
+    expect((await cli('create-section', '--branch', branchId, '--grade', '4', '--name', 'x')).code).toBe(1);
+    expect((await cli('create-section', '--branch', branchId, '--grade', 'abc', '--name', 'x')).code).toBe(1);
+    expect((await cli('create-section', '--branch', 'not-a-uuid', '--grade', '8', '--name', 'x')).err.join('\n')).toMatch(/NOT_FOUND/);
+    expect((await cli('create-section', '--grade', '8', '--name', 'x')).code).toBe(2);
+
+    const sub = await cli('create-subject', '--school', schoolId, '--name', 'Science', '--as', 'ops_setup');
+    expect(sub.code).toBe(0);
+    const { subjectId } = sub.json();
+    expect((await cli('create-subject', '--school', schoolId, '--name', 'Science')).err.join('\n')).toMatch(/VALIDATION/);
+
+    const asg = await cli('assign-teacher', '--teacher', 'SETUP_TEACHER', '--section', sectionId, '--subject', subjectId, '--as', 'ops_setup');
+    expect(asg.code).toBe(0);
+    expect(asg.json()).toMatchObject({ teacher: 'setup_teacher', sectionId, subjectId });
+    expect((await cli('assign-teacher', '--teacher', 'setup_teacher', '--section', sectionId, '--subject', subjectId)).code).toBe(0); // idempotent
+    expect(await withPlatform((tx) => tx.select().from(teacherAssignments))).toHaveLength(1);
+    const noTeacher = await cli('assign-teacher', '--teacher', 'nobody_here', '--section', sectionId, '--subject', subjectId);
+    expect(noTeacher.code).toBe(1);
+    expect(noTeacher.err.join('\n')).toMatch(/NOT_FOUND/);
+    expect((await cli('assign-teacher', '--teacher', 'setup_teacher', '--section', sectionId)).code).toBe(2);
+
+    const list = await cli('list-school', '--school', schoolId, '--as', 'ops_setup');
+    expect(list.code).toBe(0);
+    expect(list.json()).toMatchObject({
+      school: { id: schoolId, name: 'Setup School' },
+      branches: [{ id: branchId, name: 'Main', sections: [{ id: sectionId, grade: 8, name: '8-B' }] }],
+      subjects: [{ id: subjectId, name: 'Science' }],
+      teachers: [{ username: 'setup_teacher', name: 'Tess Teacher', branchId, branchName: 'Main' }],
+    });
+    expect((await cli('list-school', '--school', 'not-a-uuid')).err.join('\n')).toMatch(/NOT_FOUND/);
+    expect((await cli('list-school')).code).toBe(2);
+    expect(JSON.stringify(list.json())).not.toMatch(/passwordHash|teacher-pass-1/);
   });
 
   it('--as must name an existing platform admin', async () => {

@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { withPlatform, withTenant, type Tx } from '@/db/client';
 import { isUniqueViolation } from '@/db/pgerror';
@@ -271,11 +271,55 @@ export async function listSectionsForBranch(
   );
 }
 
-/** Subjects of the actor's school. Staff only; a platform admin sees every school's subjects. */
-export async function listSubjects(actor: Actor): Promise<{ id: string; name: string }[]> {
+/** Subjects of the actor's school. Staff only; a platform admin sees every school's subjects, or one school's with `schoolId`. */
+export async function listSubjects(actor: Actor, schoolId?: string): Promise<{ id: string; name: string }[]> {
   const isStaff = actor.schoolId !== null && actor.roles.some((r) => r !== 'student');
   if (!actor.isPlatformAdmin && !isStaff) throw new DomainError('FORBIDDEN');
+  const only = actor.isPlatformAdmin && schoolId !== undefined;
+  if (only && !isUuid(schoolId)) return [];
   return runAs(actor, (tx) =>
-    tx.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(asc(subjects.name)),
+    tx
+      .select({ id: subjects.id, name: subjects.name })
+      .from(subjects)
+      .where(only ? eq(subjects.schoolId, schoolId!) : undefined)
+      .orderBy(asc(subjects.name)),
   );
+}
+
+export type TeacherListing = { userId: string; name: string; username: string | null; branchId: string; branchName: string };
+
+/**
+ * Teacher accounts the actor administers, ordered by name: a school_admin sees the whole school, a branch_admin
+ * only their branch. A platform admin must name the school (`schoolId`); other roles are FORBIDDEN. Never returns
+ * credentials.
+ */
+export async function listTeachers(actor: Actor, schoolId?: string): Promise<TeacherListing[]> {
+  const isSchoolAdmin = actor.roles.includes('school_admin');
+  const isBranchAdmin = actor.roles.includes('branch_admin');
+  if (!actor.isPlatformAdmin && !isSchoolAdmin && !isBranchAdmin) throw new DomainError('FORBIDDEN');
+  const filters: SQL[] = [eq(memberships.role, 'teacher')];
+  if (actor.isPlatformAdmin) {
+    if (!isUuid(schoolId)) throw new DomainError('VALIDATION', 'A school is required', { field: 'schoolId' });
+    filters.push(eq(memberships.schoolId, schoolId));
+  } else {
+    if (!actor.schoolId) throw new DomainError('FORBIDDEN');
+    filters.push(eq(memberships.schoolId, actor.schoolId));
+    if (!isSchoolAdmin) {
+      if (!actor.branchId) throw new DomainError('FORBIDDEN');
+      filters.push(eq(memberships.branchId, actor.branchId));
+    }
+  }
+  const rows = await runAs(actor, (tx) =>
+    tx
+      .select({
+        userId: users.id, name: users.name, username: users.username,
+        branchId: memberships.branchId, branchName: branches.name,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .innerJoin(branches, eq(branches.id, memberships.branchId))
+      .where(and(...filters))
+      .orderBy(asc(users.name), asc(users.id)),
+  );
+  return rows.map((r) => ({ ...r, branchId: r.branchId! }));
 }

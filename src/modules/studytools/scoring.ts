@@ -26,10 +26,14 @@ export function scoreMcq(q: StoredQuestion, answer: unknown): { score: number; m
   return { score: correct ? q.marks : 0, maxScore: q.marks, correct };
 }
 
-/** `max` counts every question's marks, answered or not. */
+/** Questions whose grading failed (`needsReview`) count toward neither score nor max, so grader outages do not depress totals. */
+export const isScored = (r: QuestionResult | undefined): boolean => !r?.needsReview;
+
+/** `max` counts every scored question's marks, answered or not. A chapter with no scored question is omitted. */
 export function buildByChapter(questions: StoredQuestion[], results: Results): ByChapter {
   const out: ByChapter = {};
   for (const q of questions) {
+    if (!isScored(results[q.id])) continue;
     const e = (out[q.chapterId] ??= { scored: 0, max: 0 });
     e.max += q.marks;
     e.scored += results[q.id]?.score ?? 0;

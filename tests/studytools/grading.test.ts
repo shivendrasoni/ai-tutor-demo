@@ -91,7 +91,8 @@ describe('handleGradeJob', () => {
     useMockModels({ standard: mockModel([new Error('provider down')]) });
     await handleGradeJob({ ...job(0), retryCount: 2, retryLimit: 2 });
     await handleGradeJob({ ...job(1), retryCount: 2, retryLimit: 2 });
-    expect(await getAttempt(student, attemptId)).toMatchObject({ status: 'graded', score: 1 });
+    // Needs-review questions count toward neither score nor max, so a grader outage does not depress the totals.
+    expect(await getAttempt(student, attemptId)).toMatchObject({ status: 'graded', score: 1, maxScore: 1, byChapter: { [CH1]: { scored: 1, max: 1 } } });
     expect(await results()).toMatchObject({
       s0: { score: 0, maxScore: 2, needsReview: true },
       l0: { score: 0, maxScore: 5, needsReview: true },

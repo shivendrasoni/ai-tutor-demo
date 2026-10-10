@@ -38,4 +38,14 @@ describe('buildByChapter', () => {
     expect(buildByChapter(qs, results)).toEqual({ ch1: { scored: 2.5, max: 3 }, ch2: { scored: 0, max: 2 } });
     expect(buildByChapter(qs, {})).toEqual({ ch1: { scored: 0, max: 3 }, ch2: { scored: 0, max: 2 } });
   });
+
+  it('leaves needs-review questions out of scored and max, and omits a chapter that has nothing left', () => {
+    const qs = [mq({ id: 'q1' }), sq({ id: 'q2' }), sq({ id: 'q3', chapterId: 'ch2' })];
+    const results = {
+      q1: { score: 1, maxScore: 1 },
+      q2: { score: 0, maxScore: 2, needsReview: true as const },
+      q3: { score: 0, maxScore: 2, needsReview: true as const },
+    };
+    expect(buildByChapter(qs, results)).toEqual({ ch1: { scored: 1, max: 1 } });
+  });
 });

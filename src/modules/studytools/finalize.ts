@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { withTenant, type Tx } from '@/db/client';
 import { artifacts, attempts } from '@/db/schema';
-import { buildByChapter, flattenQuestions, type Results } from './scoring';
+import { buildByChapter, flattenQuestions, isScored, type Results } from './scoring';
 
 /**
  * Locks the attempt row, and if every question has a result and the attempt is not yet graded, writes the totals
@@ -14,8 +14,9 @@ export async function finalizeAttempt(tx: Tx, attemptId: string): Promise<boolea
   const questions = flattenQuestions(art?.content);
   const results = (a.results ?? {}) as Results;
   if (!questions.every((q) => results[q.id])) return false;
-  const score = questions.reduce((s, q) => s + results[q.id]!.score, 0);
-  const maxScore = questions.reduce((s, q) => s + q.marks, 0);
+  const counted = questions.filter((q) => isScored(results[q.id]));
+  const score = counted.reduce((s, q) => s + results[q.id]!.score, 0);
+  const maxScore = counted.reduce((s, q) => s + q.marks, 0);
   await tx
     .update(attempts)
     .set({ status: 'graded', score: String(score), maxScore: String(maxScore), byChapter: buildByChapter(questions, results), gradedAt: sql`now()` })

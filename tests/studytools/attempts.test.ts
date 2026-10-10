@@ -184,6 +184,7 @@ describe('submitAttempt', () => {
     const row = await rowOf(id);
     expect(row.status).toBe('graded');
     expect((row.results as Record<string, unknown>).q6).toMatchObject({ score: 0, needsReview: true });
+    expect([row.score, row.maxScore]).toEqual(['0', '7']); // 5 mcq + the unanswered short (2); the two needs-review shorts are out of max
     expect(rec.current.grade).toHaveLength(0);
   });
 });

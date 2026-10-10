@@ -1,6 +1,7 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { sections, subjects } from '@/db/schema';
+import { contentExclusions, contentItems, sections, subjects } from '@/db/schema';
 import { listTeacherAssignments, sectionProgress } from '@/modules/analytics';
 import { insertChapter, insertGradedAttempt, seedAnalyticsWorld, type World } from '../helpers/analytics-seed';
 import { resetDb } from '../helpers/db';
@@ -30,12 +31,15 @@ describe('sectionProgress', () => {
   });
   it('pools across students; student without attempts has null ratio and 0 attempts', async () => {
     const c3 = (await ch('C3')).chapterId;
-    await att(w.aActive1.userId, { [c3]: { scored: 3, max: 10 } });
-    await att(w.aActive2.userId, { [c3]: { scored: 9, max: 10 } });
+    await att(w.aActive1.userId, { [c3]: { scored: 0, max: 10 } });
+    await att(w.aActive2.userId, { [c3]: { scored: 5, max: 5 } });
     const r = await run();
-    expect(r.chapters.find((c) => c.chapterId === c3)).toMatchObject({ title: 'C3', avgRatio: 0.6, weak: false });
+    const row = r.chapters.find((c) => c.chapterId === c3)!;
+    expect(row.title).toBe('C3');
+    expect(row.avgRatio).toBeCloseTo(1 / 3, 10); // pooled 5/15, not the mean of ratios (0.5)
+    expect(row.weak).toBe(true);
     const s1 = r.students.find((s) => s.studentId === w.aActive1.userId)!;
-    expect(s1.chapters.find((c) => c.chapterId === c3)).toMatchObject({ ratio: 0.3, attempts: 1 });
+    expect(s1.chapters.find((c) => c.chapterId === c3)).toMatchObject({ ratio: 0, attempts: 1 });
     const lapsed = r.students.find((s) => s.studentId === w.aLapsedId)!;
     expect(lapsed.chapters.find((c) => c.chapterId === c3)).toEqual({ chapterId: c3, ratio: null, attempts: 0 });
   });
@@ -83,6 +87,38 @@ describe('sectionProgress', () => {
     const [empty] = await withPlatform((tx) =>
       tx.insert(sections).values({ schoolId: w.a.schoolId, branchId: w.a.branchId, grade: 10, name: '10-A' }).returning());
     expect(await sectionProgress(w.a.schoolAdmin, { sectionId: empty.id, subjectId: w.a.subjectId })).toEqual({ students: [], chapters: [] });
+  });
+});
+
+describe('sectionProgress chapter visibility', () => {
+  const ids = async () => (await run(w.a.schoolAdmin)).chapters.map((c) => c.chapterId);
+  it('section-scope chapter shows for its own section, not a sibling section', async () => {
+    const [sib] = await withPlatform((tx) =>
+      tx.insert(sections).values({ schoolId: w.a.schoolId, branchId: w.a.branchId, grade: 8, name: '8-B' }).returning());
+    const c = await insertChapter({ schoolId: w.a.schoolId, branchId: w.a.branchId, sectionId: w.a.sectionId, subjectId: w.a.subjectId, grade: 8, title: 'Own' });
+    expect(await ids()).toContain(c.chapterId);
+    const r = await sectionProgress(w.a.schoolAdmin, { sectionId: sib.id, subjectId: w.a.subjectId });
+    expect(r.chapters).toEqual([]);
+  });
+  it('school-scope item excluded for the branch is not listed', async () => {
+    const c = await ch('Excluded');
+    await withPlatform((tx) =>
+      tx.insert(contentExclusions).values({ schoolId: w.a.schoolId, branchId: w.a.branchId, contentItemId: c.contentItemId }));
+    expect(await ids()).not.toContain(c.chapterId);
+  });
+  it('branch-scope item of another branch is not listed', async () => {
+    const c = await insertChapter({ schoolId: w.a.schoolId, branchId: w.aBranch2Id, branchScope: true, subjectId: w.a.subjectId, grade: 8, title: 'Other' });
+    expect(await ids()).not.toContain(c.chapterId);
+    const own = await insertChapter({ schoolId: w.a.schoolId, branchId: w.a.branchId, branchScope: true, subjectId: w.a.subjectId, grade: 8, title: 'Mine' });
+    expect(await ids()).toContain(own.chapterId);
+  });
+  it('a chapter with graded attempts that is no longer visible is omitted', async () => {
+    const c = await ch('Gone');
+    await att(w.aActive1.userId, { [c.chapterId]: { scored: 1, max: 10 } });
+    await withPlatform((tx) => tx.update(contentItems).set({ ingestStatus: 'failed' }).where(eq(contentItems.id, c.contentItemId)));
+    const r = await run();
+    expect(r.chapters.map((x) => x.chapterId)).not.toContain(c.chapterId);
+    expect(r.students.find((s) => s.studentId === w.aActive1.userId)!.chapters).toEqual([]);
   });
 });
 

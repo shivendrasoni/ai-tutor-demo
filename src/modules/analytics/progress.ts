@@ -1,5 +1,4 @@
 import { sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { DomainError } from '@/lib/errors';
 import { listVisibleChapters } from '@/modules/content';
 import { chapterProgress } from '@/modules/studytools';
@@ -15,7 +14,8 @@ export type TeacherAssignment = {
   sectionId: string; sectionName: string; grade: number; subjectId: string; subjectName: string;
 };
 
-const isUuid = (v: unknown): v is string => z.uuid().safeParse(v).success;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
 const ratio = (scored: number, max: number): number | null => (max > 0 ? scored / max : null);
 
 export async function sectionProgress(
@@ -49,6 +49,8 @@ export async function sectionProgress(
     return { section: sec, roster: r.rows as { studentId: string; name: string }[] };
   });
 
+  // Only chapters currently visible to the section are listed; a chapter with graded attempts that is no longer
+  // visible (deleted or hidden) is omitted.
   const visible = await listVisibleChapters(
     { schoolId, branchId: section.branchId, sectionId, grade: section.grade },
     subjectId,

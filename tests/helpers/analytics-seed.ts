@@ -141,7 +141,7 @@ export async function createEmptySchool(platform: Actor): Promise<{ schoolId: st
 /** A `ready` content item (school scope, or section scope when `sectionId` is given) with one chapter and one chunk
  *  (chapters without chunks are invisible to students). */
 export async function insertChapter(o: {
-  schoolId: string; branchId: string; sectionId?: string; subjectId: string; grade: number; title: string;
+  schoolId: string; branchId: string; sectionId?: string; branchScope?: boolean; subjectId: string; grade: number; title: string;
 }): Promise<{ chapterId: string; contentItemId: string }> {
   return withPlatform(async (tx) => {
     const [mem] = await tx.select({ userId: memberships.userId }).from(memberships).where(eq(memberships.schoolId, o.schoolId)).limit(1);
@@ -149,7 +149,8 @@ export async function insertChapter(o: {
       .insert(contentItems)
       .values({
         schoolId: o.schoolId, grade: o.grade, subjectId: o.subjectId, kind: 'book',
-        scope: o.sectionId ? 'section' : 'school', branchId: o.sectionId ? o.branchId : null,
+        scope: o.sectionId ? 'section' : o.branchScope ? 'branch' : 'school',
+        branchId: o.sectionId || o.branchScope ? o.branchId : null,
         sectionId: o.sectionId ?? null, title: `Book ${o.title}`, fileKey: `k/${o.title}`,
         uploadedBy: mem.userId, ingestStatus: 'ready', sizeBytes: 1,
       })

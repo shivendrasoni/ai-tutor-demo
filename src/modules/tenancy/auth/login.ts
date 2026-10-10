@@ -20,14 +20,14 @@ export async function login(username: string, password: string): Promise<{ token
   const name = normalizeUsername(typeof username === 'string' ? username : '');
   const pw = typeof password === 'string' ? password : '';
 
+  // Look the user up first and run argon2 outside any transaction (no pooled connection held during the hash).
+  const [user] = await withPlatform((tx) =>
+    tx.select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.username, name)).limit(1),
+  );
+  const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), pw);
+  if (!user || !user.passwordHash || !ok) throw invalid();
+
   const actor = await withPlatform(async (tx) => {
-    const [user] = await tx
-      .select({ id: users.id, passwordHash: users.passwordHash })
-      .from(users)
-      .where(eq(users.username, name))
-      .limit(1);
-    const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), pw);
-    if (!user || !user.passwordHash || !ok) throw invalid();
     // Only reached with a correct password, so account state is not revealed to guessers.
     if (await isRemovedStudent(tx, user.id)) throw new DomainError('ACCOUNT_REMOVED', 'This account has been removed');
     const loaded = await loadActor(tx, user.id);

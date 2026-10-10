@@ -21,7 +21,7 @@ export async function isUsernameTaken(tx: Tx, username: string): Promise<boolean
 
 export async function assertUsernameFree(tx: Tx, username: string): Promise<void> {
   if (await isUsernameTaken(tx, username)) {
-    throw new DomainError('USERNAME_TAKEN', 'That username is taken', {
+    throw new DomainError('USERNAME_TAKEN', 'Username is already taken', {
       suggestions: await suggestUsernames(tx, username, 3),
     });
   }
@@ -35,7 +35,7 @@ export async function withUsernameTakenHandling<T>(username: string, fn: () => P
     if (isUniqueViolation(err, 'users_username_unique')) {
       // The failed transaction is gone; look the suggestions up in a fresh one.
       const suggestions = await withPlatform((tx) => suggestUsernames(tx, username, 3));
-      throw new DomainError('USERNAME_TAKEN', 'That username is taken', { suggestions });
+      throw new DomainError('USERNAME_TAKEN', 'Username is already taken', { suggestions });
     }
     throw err;
   }

@@ -24,6 +24,7 @@ export async function createSession(userId: string): Promise<string> {
 }
 
 export async function revokeSession(token: string): Promise<void> {
+  if (typeof token !== 'string' || token === '') return;
   await withPlatform((tx) => tx.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))));
 }
 

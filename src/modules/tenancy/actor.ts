@@ -14,7 +14,7 @@ export interface Actor {
   roles: Role[];
 }
 
-/** Builds the actor for a user; with several memberships the oldest by (created_at, id) wins. Null if no such user. */
+/** Builds the actor for a user; with several memberships the oldest by (created_at, id) wins. Null if no such user or the user is a removed student. */
 export async function loadActor(tx: Tx, userId: string): Promise<Actor | null> {
   const [user] = await tx
     .select({ id: users.id, isPlatformAdmin: users.isPlatformAdmin })
@@ -22,6 +22,7 @@ export async function loadActor(tx: Tx, userId: string): Promise<Actor | null> {
     .where(eq(users.id, userId))
     .limit(1);
   if (!user) return null;
+  if (await isRemovedStudent(tx, userId)) return null;
   const [m] = await tx
     .select({ schoolId: memberships.schoolId, branchId: memberships.branchId, role: memberships.role })
     .from(memberships)

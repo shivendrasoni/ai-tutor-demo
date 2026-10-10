@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { memberships } from '@/db/schema';
+import { memberships, studentProfiles } from '@/db/schema';
 import { loadActor } from '@/modules/tenancy';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 
@@ -39,5 +39,14 @@ describe('loadActor with more than one membership', () => {
     const first = [...rows].sort((x, y) => (x.id < y.id ? -1 : 1))[0];
     const actor = await withPlatform((tx) => loadActor(tx, userId));
     expect(actor!.schoolId).toBe(first.schoolId);
+  });
+});
+
+describe('loadActor for removed students', () => {
+  it('returns null for a removed student and an actor otherwise', async () => {
+    const userId = seed.a.studentId;
+    expect(await withPlatform((tx) => loadActor(tx, userId))).not.toBeNull();
+    await withPlatform((tx) => tx.update(studentProfiles).set({ status: 'removed' }).where(eq(studentProfiles.userId, userId)));
+    expect(await withPlatform((tx) => loadActor(tx, userId))).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PgBoss } from 'pg-boss';
@@ -101,6 +102,23 @@ describe('queue policy migration', () => {
     ]);
     expect(deletes).toBe(1);
     expect(await policyOf(n)).toBe('stately');
+  });
+});
+
+describe('lock connection failure', () => {
+  it('aborts the migration cleanly (rejects, no drop) instead of crashing on an unhandled client error', async () => {
+    const n = qname();
+    await boss.createQueue(n, { policy: 'standard' });
+    const fake = Object.assign(new EventEmitter(), {
+      connect: async () => {},
+      end: async () => {},
+      // The connection dies right after the lock is taken.
+      query: async () => void queueMicrotask(() => fake.emit('error', new Error('connection terminated'))),
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(migrateQueuePolicies(boss, [{ name: n, options: STATELY }], () => fake as never)).rejects.toThrow(/connection terminated/);
+    err.mockRestore();
+    expect(await policyOf(n)).toBe('standard');
   });
 });
 

@@ -80,13 +80,24 @@ const LIVE_STATES = `('created','retry','active')`;
 export async function migrateQueuePolicies(
   boss: Pick<PgBoss, 'createQueue' | 'getQueue' | 'deleteQueue' | 'getDb'>,
   specs: QueueSpec[],
+  // Test seam.
+  makeLockClient: () => Client = () => new Client({ connectionString: process.env.DATABASE_URL_OWNER }),
 ): Promise<void> {
   // A session-level lock needs one dedicated connection held for the whole migration, so it is not taken through boss's pool.
-  const lock = new Client({ connectionString: process.env.DATABASE_URL_OWNER });
-  await lock.connect();
+  const lock = makeLockClient();
+  // Without a listener a dropped connection is an unhandled 'error' event that crashes the worker. A dead session
+  // also means the lock is gone, so the migration stops (checked before every step) and the error is rethrown.
+  let lockError: Error | null = null;
+  lock.on('error', (e) => {
+    lockError = e;
+    console.error('[pg-boss] queue migration lock connection failed; aborting migration', e);
+  });
   try {
+    await lock.connect();
     await lock.query('select pg_advisory_lock(hashtext($1))', [MIGRATION_LOCK_KEY]);
     for (const { name, options } of specs) {
+      await new Promise((r) => setImmediate(r)); // let a pending 'error' event surface
+      if (lockError) throw lockError;
       const existing = await boss.getQueue(name);
       const wanted = options.policy ?? 'standard';
       if (!existing) {

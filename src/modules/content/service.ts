@@ -11,6 +11,7 @@ import {
 import { DomainError } from '@/lib/errors';
 import { assertGrade, canManageBranch, canManageSchool, runAs, type Actor } from '@/modules/tenancy';
 import { getDeps } from './deps';
+import { STUCK_INGEST_AFTER_MS } from './stuck';
 
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
@@ -233,8 +234,7 @@ export async function deleteContent(actor: Actor, itemId: string): Promise<void>
   }
 }
 
-/** A queued/processing item this old with no live job lost its job (e.g. a queue was recreated); retry may re-enqueue it. */
-export const STUCK_INGEST_AFTER_MS = 15 * 60_000;
+export { STUCK_INGEST_AFTER_MS };
 
 /** Failed items can always be retried; queued/processing ones only when stuck (old and with no live job). */
 export async function retryIngest(actor: Actor, itemId: string): Promise<void> {

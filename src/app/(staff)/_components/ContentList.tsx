@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import type { ContentItemRow, IngestStatus } from '@/modules/content';
+// Direct import (not the module index) so the client bundle does not pull in server code.
+import { STUCK_INGEST_AFTER_MS } from '@/modules/content/stuck';
 import styles from '../staff.module.css';
 
 type Props = { initialItems: ContentItemRow[]; toggleBranchId: string | null };
@@ -17,7 +19,7 @@ const SCOPE: Record<string, string> = { school: 'Whole school', branch: 'Branch'
 
 /** Queued/processing for over 15 min: Retry is offered; the server only accepts it when no job is live. */
 export const isStuckCandidate = (i: Pick<ContentItemRow, 'status' | 'createdAt'>, now = Date.now()) =>
-  (i.status === 'queued' || i.status === 'processing') && now - new Date(i.createdAt).getTime() > 15 * 60_000;
+  (i.status === 'queued' || i.status === 'processing') && now - new Date(i.createdAt).getTime() > STUCK_INGEST_AFTER_MS;
 const inFlight = (items: ContentItemRow[]) => items.some((i) => i.status === 'queued' || i.status === 'processing');
 
 async function post(path: string, body: unknown): Promise<boolean> {

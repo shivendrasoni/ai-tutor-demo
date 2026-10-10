@@ -25,6 +25,10 @@ Later plans must use these real names. They take precedence over plan 2's text w
 - `IngestQueue` has `hasLiveJob(contentItemId)`. `PgBossQueue.enqueue` throws when `send` returns null (stately dedupe) and no created/retry/active job exists for the item, so the caller marks the item failed.
 - `retryIngest` also accepts a `queued`/`processing` item older than 15 min (`STUCK_INGEST_AFTER_MS`, by `created_at`) that has no live job (a lost job); the content list shows Retry for such items. Otherwise it stays VALIDATION.
 
+## Deploy notes: queue policy migration
+- Narrow race: the worker counts live jobs and then calls `deleteQueue`; a web `send` to the old-policy queue between those two steps is lost with the drop. The stuck-item `retryIngest` path recovers ingest items; study jobs have their own recovery paths.
+- Runbook: a queue with steady live traffic (any created/retry/active job at worker start) is not migrated and logs an error. Drain it (pause uploads or let jobs finish) and restart the worker. If the migration lock connection drops, the worker's startup fails with the logged error; restart it.
+
 ## Requirements and rules
 - pgvector 0.8 or later (the search uses `hnsw.iterative_scan`). The docker image is `pgvector/pgvector:pg16`.
 - Switching `EMBEDDER` hides existing chunks, because search filters on `embedding_model`. Re-ingest the items to make them searchable again.

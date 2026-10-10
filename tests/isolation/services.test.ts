@@ -7,7 +7,7 @@ import { asc, eq, getTableName, sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, withPlatform, withTenant } from '@/db/client';
 import {
-  branches, invites, payments, schools, sections, studentProfiles, subjects, teacherAssignments,
+  branches, chunks, contentChapters, contentExclusions, contentItems, invites, payments, schools, sections, studentProfiles, subjects, teacherAssignments,
   tenantTables, users,
 } from '@/db/schema';
 import {
@@ -36,13 +36,13 @@ const pgCodeOf = (p: Promise<unknown>) =>
 type TenantTable = (typeof tenantTables)[number];
 const name = (t: TenantTable) => getTableName(t);
 
-/** Every tenant row (all 9 tables) plus the schools row for `schoolId`, read with RLS bypassed. */
+/** Every tenant row (every tenant table) plus the schools row for `schoolId`, read with RLS bypassed. */
 async function snapshot(schoolId: string): Promise<Record<string, unknown[]>> {
   return withPlatform(async (tx) => {
     const out: Record<string, unknown[]> = {};
     for (const T of tenantTables) {
       const res = await tx.execute(
-        sql`select * from ${T} where school_id = ${schoolId} order by created_at, ${sql.raw('ctid')}`,
+        sql`select * from ${T} where school_id = ${schoolId} order by ${sql.raw('ctid')}`,
       );
       out[name(T)] = res.rows;
     }
@@ -248,7 +248,7 @@ describe('branch-level isolation inside School A', () => {
 });
 
 describe('raw RLS isolation over tenantTables', () => {
-  /** Seeds a payment and an invite for each school so every tenant table has rows for both. */
+  /** Seeds a payment, an invite and content rows for each school so every tenant table has rows for both. */
   async function seedAllTables() {
     await withPlatform(async (tx) => {
       for (const s of [seed.a, seed.b]) {
@@ -260,6 +260,18 @@ describe('raw RLS isolation over tenantTables', () => {
           schoolId: s.schoolId, studentUserId: s.studentId, tokenHash: hashToken(`tok-${s.schoolId}`),
           expiresAt: new Date(Date.now() + 86_400_000),
         });
+        const [item] = await tx.insert(contentItems).values({
+          schoolId: s.schoolId, grade: 8, subjectId: s.subjectId, kind: 'book', scope: 'school', title: 'Book',
+          fileKey: `${s.schoolId}/b.pdf`, uploadedBy: seed.platform.userId, sizeBytes: 1,
+        }).returning();
+        const [chapter] = await tx.insert(contentChapters).values({
+          schoolId: s.schoolId, contentItemId: item.id, ordinal: 1, title: 'Ch 1', pageStart: 1, pageEnd: 1,
+        }).returning();
+        await tx.insert(chunks).values({
+          schoolId: s.schoolId, contentItemId: item.id, chapterId: chapter.id, ordinal: 1, pageStart: 1, pageEnd: 1,
+          text: 't', tokenEstimate: 1,
+        });
+        await tx.insert(contentExclusions).values({ schoolId: s.schoolId, branchId: s.branchId, contentItemId: item.id });
       }
     });
   }
@@ -289,11 +301,11 @@ describe('raw RLS isolation over tenantTables', () => {
     const before = await snapshot(seed.b.schoolId);
     for (const T of tenantTables) {
       const upd = await withTenant(seed.a.schoolId, (tx) =>
-        tx.execute(sql`update ${T} set created_at = now() where school_id = ${seed.b.schoolId} returning 1`),
+        tx.execute(sql`update ${T} set school_id = school_id where school_id = ${seed.b.schoolId} returning 1`),
       );
       expect(upd.rows.length, `update ${name(T)}`).toBe(0);
       const updAll = await withTenant(seed.a.schoolId, (tx) =>
-        tx.execute(sql`update ${T} set created_at = created_at returning school_id`),
+        tx.execute(sql`update ${T} set school_id = school_id returning school_id`),
       );
       expect(updAll.rows.every((r) => r.school_id === seed.a.schoolId), `update-all ${name(T)}`).toBe(true);
       const del = await withTenant(seed.a.schoolId, (tx) =>

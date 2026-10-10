@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { closeDb, withPlatform } from '@/db/client';
+import { withPlatform } from '@/db/client';
 import { users } from '@/db/schema';
 import { createPlan, listPendingSubscriptions, recordPayment } from '@/modules/enrollment';
 import { createBranch, createSchool, createSection, type Actor } from '@/modules/tenancy';
@@ -23,9 +23,7 @@ test.beforeAll(async () => {
   code = branch.signupCode;
 });
 
-test.afterAll(async () => {
-  await closeDb();
-});
+// No closeDb(): Playwright reuses one worker process across spec files, and the db pools are module-level.
 
 test('signup with a branch code, log in while pending, then activate after payment', async ({ page }) => {
   // 1. Code entry

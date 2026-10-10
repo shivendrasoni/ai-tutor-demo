@@ -17,6 +17,7 @@ export {
   createSubject,
   findBranchByCode,
   listSectionsForBranch,
+  listSubjects,
   rotateBranchCode,
   setBranchCodeEnabled,
   type BranchByCode,

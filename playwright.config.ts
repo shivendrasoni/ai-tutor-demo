@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { config } from 'dotenv';
 import { defineConfig, devices } from '@playwright/test';
 
@@ -8,12 +9,17 @@ config({ path: '.env.test', override: true, quiet: true });
 const PORT = 3100;
 const APP_URL = `http://localhost:${PORT}`;
 process.env.APP_URL = APP_URL;
+// One absolute blob dir shared by the web server (uploads) and the in-process worker (global-setup).
+process.env.BLOB_DIR = resolve(process.env.BLOB_DIR ?? '.blob-test');
+process.env.EMBEDDER = 'fake';
 
 const serverEnv: Record<string, string> = {
   DATABASE_URL_OWNER: process.env.DATABASE_URL_OWNER!,
   DATABASE_URL_APP: process.env.DATABASE_URL_APP!,
   DATABASE_URL_ADMIN: process.env.DATABASE_URL_ADMIN!,
   APP_URL,
+  EMBEDDER: 'fake',
+  BLOB_DIR: process.env.BLOB_DIR,
   NEXT_TELEMETRY_DISABLED: '1',
 };
 

@@ -29,6 +29,27 @@
       "when": 1791586605984,
       "tag": "0003_default_privileges",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791588314367,
+      "tag": "0004_vector_ext",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791588347493,
+      "tag": "0005_dusty_whistler",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791588347734,
+      "tag": "0006_content_rls",
+      "breakpoints": true
     }
   ]
 }

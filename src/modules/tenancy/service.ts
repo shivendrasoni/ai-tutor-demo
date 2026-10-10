@@ -270,3 +270,12 @@ export async function listSectionsForBranch(
       .orderBy(asc(sections.grade), asc(sections.name)),
   );
 }
+
+/** Subjects of the actor's school. Staff only; a platform admin sees every school's subjects. */
+export async function listSubjects(actor: Actor): Promise<{ id: string; name: string }[]> {
+  const isStaff = actor.schoolId !== null && actor.roles.some((r) => r !== 'student');
+  if (!actor.isPlatformAdmin && !isStaff) throw new DomainError('FORBIDDEN');
+  return runAs(actor, (tx) =>
+    tx.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(asc(subjects.name)),
+  );
+}

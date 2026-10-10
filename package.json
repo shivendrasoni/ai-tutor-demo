@@ -13,15 +13,22 @@
     "test:isolation": "vitest run tests/isolation",
     "admin": "tsx scripts/admin.ts",
     "job:lapse": "tsx scripts/lapse.ts",
+    "worker": "tsx src/worker.ts",
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.91",
+    "@aws-sdk/client-s3": "^3.1148.0",
     "@node-rs/argon2": "^2.2.2",
+    "ai": "^7.0.135",
     "drizzle-orm": "^0.45.4",
     "next": "^15.5.27",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.23.1",
+    "pg-boss": "^12.37.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

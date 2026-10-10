@@ -77,6 +77,14 @@ describe('login throttling', () => {
     expect((await login(studentName, SEED_PASSWORD, '10.9.9.10')).status).toBe(200);
   });
 
+  it('a concurrent burst of 120 failing logins across usernames from one IP: at most 100 reach password verification', async () => {
+    verifySpy.mockClear();
+    const res = await Promise.all(Array.from({ length: 120 }, (_, i) => login(`burst_${i}`, 'wrong-pass', '10.7.7.7')));
+    expect(res.filter((r) => r.status === 401)).toHaveLength(100);
+    expect(res.filter((r) => r.status === 429)).toHaveLength(20);
+    expect(verifySpy.mock.calls.length).toBeLessThanOrEqual(100);
+  });
+
   it('limits are env-configurable', async () => {
     vi.stubEnv('RATE_LIMIT_LOGIN_USER', '2');
     try {

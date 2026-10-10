@@ -5,6 +5,7 @@ import { messages, skills, studentProfiles } from '@/db/schema';
 import {
   createConversation,
   getMessages,
+  listChatSubjects,
   listConversations,
   submitFeedback,
 } from '@/modules/tutor';
@@ -78,5 +79,10 @@ describe('conversations service', () => {
     await expect(submitFeedback(seed.a.student, u, { rating: 'down' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     await expect(submitFeedback(seed.b.student, a, { rating: 'down' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     await expect(submitFeedback(seed.a.student, 'bad', { rating: 'down' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('listChatSubjects returns the visible subjects for an active student and FORBIDDEN otherwise', async () => {
+    expect(await listChatSubjects(seed.a.student)).toEqual([{ id: seed.a.subjectId, name: 'Mathematics' }]);
+    await expect(listChatSubjects(seed.a.teacher)).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

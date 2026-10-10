@@ -71,6 +71,12 @@ export async function createConversation(
   return { id: row.id };
 }
 
+/** Subjects with content visible to the active student (for the new-chat subject picker). */
+export async function listChatSubjects(actor: Actor): Promise<{ id: string; name: string }[]> {
+  const scope = await studentScope(actor);
+  return getDeps().content.subjects(scope);
+}
+
 export async function listConversations(
   actor: Actor,
 ): Promise<{ id: string; title: string | null; skillKey: string; subjectId: string | null; updatedAt: Date }[]> {

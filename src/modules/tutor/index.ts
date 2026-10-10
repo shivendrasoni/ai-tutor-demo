@@ -1,4 +1,4 @@
-export { createConversation, getMessages, listConversations, submitFeedback, type MessageRow } from './conversations';
+export { createConversation, listChatSubjects, getMessages, listConversations, submitFeedback, type MessageRow } from './conversations';
 export { runTurn, type TurnEvent } from './turn';
 export { listSkills, seedSkills, SEED_SKILLS, type SkillRow, type SkillKind } from './skills';
 export type { Citation } from './citations';

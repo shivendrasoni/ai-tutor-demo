@@ -59,7 +59,7 @@ test('signup with a branch code, log in while pending, then activate after payme
     ),
   ).toBeVisible();
 
-  // 4. Record the payment as the platform admin, then reload
+  // 4. Record the payment as the platform admin, then reload: an active student lands on /learn
   const pending = await listPendingSubscriptions(platform);
   const row = pending.find((p) => p.username === 'e2e.kid');
   expect(row).toBeTruthy();
@@ -67,5 +67,5 @@ test('signup with a branch code, log in while pending, then activate after payme
     subscriptionId: row!.subscriptionId, amountMinor: 49900, currency: 'INR', paidAt: new Date(),
   });
   await page.reload();
-  await expect(page.getByText('Your account is active.')).toBeVisible();
+  await expect(page).toHaveURL(/\/learn$/);
 });

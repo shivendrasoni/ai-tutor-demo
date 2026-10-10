@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import { withPlatform, type Tx } from '@/db/client';
 import { sessions } from '@/db/schema';
 
@@ -32,4 +32,12 @@ export async function revokeUserSessions(tx: Tx, userId: string): Promise<void> 
 export async function revokeSession(token: string): Promise<void> {
   if (typeof token !== 'string' || !token) return;
   await withPlatform((tx) => tx.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))));
+}
+
+/** Deletes sessions that expired before `cutoff` (housekeeping; expired sessions are already unusable). */
+export async function purgeExpiredSessions(cutoff: Date): Promise<number> {
+  const rows = await withPlatform((tx) =>
+    tx.delete(sessions).where(lt(sessions.expiresAt, cutoff)).returning({ id: sessions.id }),
+  );
+  return rows.length;
 }

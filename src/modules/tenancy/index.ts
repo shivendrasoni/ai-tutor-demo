@@ -4,7 +4,7 @@ export { assert, canManageBranch, canManageSchool, requirePlatform, runAs } from
 export { login } from './auth/login';
 export { assertPasswordStrength, hashPassword, verifyPassword } from './auth/passwords';
 export { assertValidUsername, normalizeUsername, suggestUsernames } from './auth/usernames';
-export { createSession, revokeSession, revokeUserSessions, SESSION_TTL_MS } from './auth/sessions';
+export { createSession, purgeExpiredSessions, revokeSession, revokeUserSessions, SESSION_TTL_MS } from './auth/sessions';
 export { assertUsernameFree, isUsernameTaken, validateCredentials, withUsernameTakenHandling } from './auth/credentials';
 export { BRANCH_CODE_ALPHABET, generateBranchCode, normalizeBranchCode } from './codes';
 export {

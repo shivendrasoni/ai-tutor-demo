@@ -1,10 +1,12 @@
 import { DomainError } from '@/lib/errors';
 import { handle, json } from '@/lib/http';
+import { clientIp, enforce, limits, WINDOW_15_MIN } from '@/lib/rate-limit';
 import { findBranchByCode, listSectionsForBranch } from '@/modules/tenancy';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = handle(async (_req: Request, ctx: { params: Promise<{ code: string }> }) => {
+export const GET = handle(async (req: Request, ctx: { params: Promise<{ code: string }> }) => {
+  await enforce(`join:lookup:${clientIp(req)}`, limits.joinLookupPerIp(), WINDOW_15_MIN);
   const { code } = await ctx.params;
   const branch = await findBranchByCode(code);
   if (!branch) throw new DomainError('INVALID_CODE', 'Unknown signup code');

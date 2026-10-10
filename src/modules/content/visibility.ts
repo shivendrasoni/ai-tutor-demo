@@ -26,6 +26,7 @@ export type ChunkHit = {
   pageStart: number;
   pageEnd: number;
   text: string;
+  /** Cosine similarity in [0,1]; always exactly 1 for results of `chunksForChapters` (no query to compare to). */
   similarity: number;
 };
 export type SearchOpts = { subjectIds?: string[]; chapterIds?: string[]; limit?: number; minSimilarity?: number };
@@ -125,6 +126,8 @@ export async function searchChunks(scope: StudentScope, query: string, opts: Sea
   const requested = Math.floor(Number(opts.limit ?? DEFAULT_LIMIT));
   const limit = Math.min(50, Math.max(1, Number.isNaN(requested) ? DEFAULT_LIMIT : requested));
   const minSimilarity = Number.isFinite(opts.minSimilarity) ? (opts.minSimilarity as number) : DEFAULT_MIN_SIMILARITY;
+
+  if (query.trim() === '') return []; // nothing to embed or match
 
   const filters: SQL[] = [];
   for (const [list, column] of [

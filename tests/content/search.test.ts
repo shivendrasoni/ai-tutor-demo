@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { withPlatform } from '@/db/client';
 import { chunks, contentChapters, contentExclusions, studentProfiles } from '@/db/schema';
-import { chunksForChapters, searchChunks, studentScope, type StudentScope } from '@/modules/content';
+import { chunksForChapters, searchChunks, setDepsForTest, studentScope, type StudentScope } from '@/modules/content';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
 import { seedChunks, seedItem } from '../helpers/content';
 
@@ -192,5 +192,39 @@ describe('chunksForChapters', () => {
     expect(new Set(hits.map((h) => h.chapterId))).toEqual(new Set([plantsChapter]));
     expect(await chunksForChapters(scope, [bChapter, excludedChapter, queuedChapter, 'junk'], 100000)).toEqual([]);
     expect(await chunksForChapters(scope, [], 100000)).toEqual([]);
+  });
+});
+
+describe('searchChunks query handling', () => {
+  it('empty or whitespace query returns [] without calling the embedder', async () => {
+    let calls = 0;
+    setDepsForTest({ embedder: { modelId: 'fake:hash-1536', dimension: 1536, embed: async () => { calls++; return []; } } });
+    try {
+      expect(await searchChunks(scope, '')).toEqual([]);
+      expect(await searchChunks(scope, '  \n\t ')).toEqual([]);
+      expect(calls).toBe(0);
+    } finally {
+      setDepsForTest(null);
+    }
+  });
+
+  it('works when unrelated deps are misconfigured (bad OCR_MODEL / S3 config)', async () => {
+    const saved = { OCR_MODEL: process.env.OCR_MODEL, S3_BUCKET: process.env.S3_BUCKET, EMBEDDER: process.env.EMBEDDER };
+    process.env.OCR_MODEL = 'nonsense/model';
+    process.env.S3_BUCKET = 'bucket-without-credentials-or-region';
+    process.env.EMBEDDER = 'fake';
+    setDepsForTest(null);
+    vi.resetModules(); // fresh deps module: nothing memoised from earlier tests
+    try {
+      const { searchChunks: freshSearch } = await import('@/modules/content');
+      const hits = await freshSearch(scope, 'quadratic equations roots');
+      expect(hits.length).toBeGreaterThan(0);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      setDepsForTest(null);
+    }
   });
 });

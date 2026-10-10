@@ -3,7 +3,7 @@ import { getDeps } from './deps';
 import { runIngest, type IngestDeps, type IngestJob } from './ingest';
 
 export const INGEST_QUEUE = 'ingest';
-export const INGEST_QUEUE_OPTIONS = { retryLimit: 3, retryBackoff: true } as const;
+export const INGEST_QUEUE_OPTIONS = { retryLimit: 3, retryBackoff: true, expireInSeconds: 3600 } as const;
 
 export interface IngestQueue {
   enqueue(job: IngestJob): Promise<void>;
@@ -33,9 +33,18 @@ export async function startBoss(): Promise<PgBoss> {
 export class PgBossQueue implements IngestQueue {
   private boss: Promise<PgBoss> | null = null;
 
+  constructor(private readonly starter: () => Promise<PgBoss> = startBoss) {}
+
   async enqueue(job: IngestJob): Promise<void> {
-    this.boss ??= startBoss();
-    const boss = await this.boss;
+    const starting = (this.boss ??= this.starter());
+    let boss: PgBoss;
+    try {
+      boss = await starting;
+    } catch (err) {
+      // Do not cache a failed start: the next enqueue retries instead of failing until restart.
+      if (this.boss === starting) this.boss = null;
+      throw err;
+    }
     await boss.send(INGEST_QUEUE, job, { singletonKey: job.contentItemId });
   }
 

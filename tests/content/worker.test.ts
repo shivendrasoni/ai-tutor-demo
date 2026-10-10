@@ -23,7 +23,22 @@ async function waitFor(cond: () => Promise<boolean>, ms: number) {
 
 describe('ingest queue', () => {
   it('queue options are retryLimit 3 with backoff', () =>
-    expect(INGEST_QUEUE_OPTIONS).toEqual({ retryLimit: 3, retryBackoff: true }));
+    expect(INGEST_QUEUE_OPTIONS).toEqual({ retryLimit: 3, retryBackoff: true, expireInSeconds: 3600 }));
+
+  it('PgBossQueue does not cache a failed start: the next enqueue retries it', async () => {
+    const sent: unknown[] = [];
+    const fakeBoss = { send: async (...a: unknown[]) => void sent.push(a), stop: async () => {} } as never;
+    let calls = 0;
+    const q = new PgBossQueue(async () => {
+      if (++calls === 1) throw new Error('transient');
+      return fakeBoss;
+    });
+    const job = { contentItemId: 'i', schoolId: 's' };
+    await expect(q.enqueue(job)).rejects.toThrow('transient');
+    await q.enqueue(job);
+    expect(calls).toBe(2);
+    expect(sent).toHaveLength(1);
+  });
 
   it('isFinalAttempt is true only once retryCount reaches retryLimit', () => {
     expect(isFinalAttempt({ retryCount: 2, retryLimit: 3 })).toBe(false);

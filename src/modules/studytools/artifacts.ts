@@ -176,7 +176,7 @@ function citationsOf(chunkIds: unknown, sources: Sources): Citation[] {
   return out;
 }
 
-const questionView = (q: Raw, sources: Sources): ViewQuestion => ({
+export const questionView = (q: Raw, sources: Sources): ViewQuestion => ({
   id: q.id,
   type: q.type,
   prompt: q.prompt,

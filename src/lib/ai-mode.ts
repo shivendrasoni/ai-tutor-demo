@@ -24,8 +24,7 @@ export function aiMockMode(env: Record<string, string | undefined> = process.env
   else if (flag === '0') on = false;
   else
     on =
-      env.NODE_ENV !== 'production' &&
-      env.NODE_ENV !== 'test' &&
+      env.NODE_ENV === 'development' && // fail closed: unset NODE_ENV (a tsx worker in prod) never enables it
       !env.VITEST &&
       !REAL_PROVIDER_KEYS.some((k) => env[k]);
   if (on && !warned) {

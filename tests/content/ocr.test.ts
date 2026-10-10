@@ -66,6 +66,7 @@ describe('MockOcrExtractor / selectOcr in mock mode', () => {
     expect(selectOcr({ AI_MOCK: '1', OCR_MODEL: 'openai/gpt-4o' } as any)).toBeInstanceOf(ModelOcrExtractor);
     expect(selectOcr({ AI_MOCK: '0', NODE_ENV: 'development' } as any)).toBeNull();
     expect(selectOcr({ NODE_ENV: 'production' } as any)).toBeNull();
-    expect(selectOcr({} as any)).toBeInstanceOf(MockOcrExtractor); // dev default: no keys, not test/production
+    expect(selectOcr({ NODE_ENV: 'development' } as any)).toBeInstanceOf(MockOcrExtractor); // dev default
+    expect(selectOcr({} as any)).toBeNull(); // unset NODE_ENV (tsx worker) fails closed
   });
 });

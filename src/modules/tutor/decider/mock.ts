@@ -15,7 +15,9 @@ const choiceAnswer = (keys: string[], key: string, top: number): DeciderAnswer =
   return { type: 'choice', choice: key, probabilities, confidence: confidenceFrom(probabilities) };
 };
 
-const UNSAFE = /\b(kill (myself|him|her|them)|suicide|self[- ]?harm|hurt myself|porn|sex|bomb|weapon|drugs?)\b/i;
+// Only clearly harmful phrasing; bare words like "sex cells", "atom bomb" or "drugs" are curriculum vocabulary.
+const UNSAFE =
+  /\b(kill (myself|him|her|them)|suicide|self[- ]?harm|(hurt|harm|cut) myself|want to die|how (to|do i) (make|build) (a )?(bomb|weapon|explosives?)|porn)\b/i;
 const FINAL_ANSWER =
   /\b(just|only)\s+(tell|give)\s+me\s+(the\s+)?(final\s+)?answer\b|\b(give|tell)\s+me\s+(the\s+)?(final\s+)?answers?\b|\bwhat'?s the answer\b|\bsolve it for me\b|\bdo (it|this|my homework) for me\b/i;
 const EXAM = /\b(exams?|tests?|revise|revision|quiz|board|practice paper|prepare for)\b/i;
@@ -65,13 +67,16 @@ function difficultyOf(text: string, levelCount: number): number {
   return Math.min(level, levelCount - 1);
 }
 
-/** The text of the last `user:` turn in a `role: content` state string (the whole state if it has no markers). */
+/**
+ * The latest user message: everything from the last line starting with `user: ` to the end of the state, so a
+ * message containing its own `assistant: ` lines is kept whole. Limitation: a message that itself contains a line
+ * starting with `user: ` is cut at that line (the `role: content` format cannot disambiguate it).
+ */
 function lastUserText(state: string): string {
-  const parts = state.split(/^(?:user|assistant): /m);
-  const marked = state.match(/^(user|assistant): /gm);
-  if (!marked) return state;
-  for (let i = marked.length - 1; i >= 0; i--) if (marked[i].startsWith('user')) return parts[i + 1] ?? '';
-  return state;
+  let start = -1;
+  const re = /^user: /gm;
+  for (let m = re.exec(state); m; m = re.exec(state)) start = m.index + m[0].length;
+  return start < 0 ? state : state.slice(start);
 }
 
 /**

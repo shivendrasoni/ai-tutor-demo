@@ -13,17 +13,25 @@ describe('aiMockMode', () => {
     expect(aiMockMode({ AI_MOCK: '0', NODE_ENV: 'development' })).toBe(false);
   });
 
-  it('defaults on in development with no provider config (empty strings count as unset)', () => {
+  it('defaults on only when NODE_ENV is development with no provider config (empty strings count as unset)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(aiMockMode({ NODE_ENV: 'development' })).toBe(true);
-    expect(aiMockMode({})).toBe(true);
-    expect(aiMockMode({ AI_MOCK: '', OPENAI_API_KEY: '', LLM_STANDARD_MODEL: '' })).toBe(true);
+    expect(aiMockMode({ NODE_ENV: 'development', AI_MOCK: '', OPENAI_API_KEY: '', LLM_STANDARD_MODEL: '' })).toBe(true);
+  });
+
+  it('fails closed: unset NODE_ENV (e.g. a tsx worker in prod) never enables the default', () => {
+    expect(aiMockMode({})).toBe(false);
+    expect(aiMockMode({ AI_MOCK: '' })).toBe(false);
+  });
+
+  it('development with a real key is off', () => {
+    expect(aiMockMode({ NODE_ENV: 'development', OPENAI_API_KEY: 'k' })).toBe(false);
   });
 
   it('never defaults on in production, test or vitest', () => {
     expect(aiMockMode({ NODE_ENV: 'production' })).toBe(false);
     expect(aiMockMode({ NODE_ENV: 'test' })).toBe(false);
-    expect(aiMockMode({ VITEST: 'true' })).toBe(false);
+    expect(aiMockMode({ NODE_ENV: 'development', VITEST: 'true' })).toBe(false);
   });
 
   it.each([

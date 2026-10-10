@@ -52,14 +52,20 @@ export async function studentUsage(
         const [asg] = await tx
           .select({ sectionId: teacherAssignments.sectionId })
           .from(teacherAssignments)
-          .where(sql`${teacherAssignments.teacherId} = ${actor.userId} and ${teacherAssignments.sectionId} = ${sectionId}`)
+          .where(
+            sql`${teacherAssignments.teacherId} = ${actor.userId} and ${teacherAssignments.sectionId} = ${sectionId}${
+              subjectId ? sql` and ${teacherAssignments.subjectId} = ${subjectId}` : sql``
+            }`,
+          )
           .limit(1);
         if (!asg) throw new DomainError('FORBIDDEN');
       }
       scope = sql`${scope} and sp.section_id = ${sectionId}`;
     }
     if (!isSchoolAdmin && !isBranchAdmin) {
-      scope = sql`${scope} and sp.section_id in (select section_id from teacher_assignments where teacher_id = ${actor.userId})`;
+      scope = sql`${scope} and sp.section_id in (select section_id from teacher_assignments where teacher_id = ${actor.userId}${
+        subjectId ? sql` and subject_id = ${subjectId}` : sql``
+      })`;
     } else if (branchScope) {
       scope = sql`${scope} and sp.branch_id = ${branchScope}`;
     }

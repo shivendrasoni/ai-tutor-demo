@@ -156,6 +156,7 @@ describe('teacher progress/usage', () => {
     for (const h of [progressRoute.GET, usageRoute.GET]) {
       expect((await h(req(`/x${q(w.a.sectionId)}`, t))).status).toBe(200);
       expect((await h(req(`/x${q(w.aSection9Id)}`, t))).status).toBe(403);
+      expect((await h(req(`/x?sectionId=${w.a.sectionId}&subjectId=${w.aSubject2Id}`, t))).status).toBe(403);
       expect((await h(req('/x', t))).status).toBe(400);
       expect((await h(req('/x?sectionId=bad&subjectId=bad', t))).status).toBe(400);
       expect((await h(req(`/x${q(w.a.sectionId)}`))).status).toBe(401);

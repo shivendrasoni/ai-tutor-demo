@@ -17,6 +17,12 @@ const of = async (actor: Parameters<typeof studentUsage>[0], id: string, args: P
   (await studentUsage(actor, { now, ...args })).find((u) => u.studentId === id);
 
 describe('studentUsage', () => {
+  it('teacher-only actor: subject without a (section, subject) assignment is FORBIDDEN', async () => {
+    await expect(studentUsage(w.a.teacher, { now, sectionId: w.a.sectionId, subjectId: w.aSubject2Id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(studentUsage(w.a.teacher, { now, sectionId: w.a.sectionId, subjectId: w.a.subjectId })).resolves.toBeDefined();
+    // admins are not limited by teacher assignments
+    await expect(studentUsage(w.a.schoolAdmin, { now, sectionId: w.a.sectionId, subjectId: w.aSubject2Id })).resolves.toBeDefined();
+  });
   it('8-day-old message counts in 30d but not 7d', async () => {
     await insertMessage({ ...m(), role: 'user', createdAt: new Date('2027-03-02T09:00:00Z') });
     expect(await of(w.a.teacher, w.aActive1.userId)).toMatchObject({ messages7d: 0, messages30d: 1 });

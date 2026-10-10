@@ -189,3 +189,67 @@ export function resetStudyMocks(): void {
   resetTutorConfig();
   vi.unstubAllEnvs();
 }
+
+// ---- Task 4: queue seam and content fixtures ----
+import { afterEach, beforeEach } from 'vitest';
+import { asc, inArray } from 'drizzle-orm';
+import { chunks as chunksTable, contentChapters } from '@/db/schema';
+import { setStudyQueue, type GenerateJob, type GradeJob, type StudyQueue } from '@/modules/studytools/queue';
+import { seedChunks, seedItem } from './content';
+import type { SchoolSeed } from './db';
+
+export class RecordingQueue implements StudyQueue {
+  generate: GenerateJob[] = [];
+  grade: GradeJob[] = [];
+  /** When set, the next enqueue call throws this error (then clears). */
+  failNext: Error | null = null;
+  private maybeFail(): void {
+    if (this.failNext) {
+      const e = this.failNext;
+      this.failNext = null;
+      throw e;
+    }
+  }
+  async enqueueGenerate(d: GenerateJob): Promise<void> {
+    this.maybeFail();
+    this.generate.push(d);
+  }
+  async enqueueGrade(d: GradeJob[]): Promise<void> {
+    this.maybeFail();
+    this.grade.push(...d);
+  }
+}
+
+/** Installs a fresh RecordingQueue per test (beforeEach) and removes it afterwards. Call at the top of a describe/file. */
+export function useRecordingQueue(): { current: RecordingQueue } {
+  const holder = { current: new RecordingQueue() };
+  beforeEach(() => {
+    holder.current = new RecordingQueue();
+    setStudyQueue(holder.current);
+  });
+  afterEach(() => setStudyQueue(null));
+  return holder;
+}
+
+/** A ready school-scope grade-8 item with chapters and FakeEmbedder-vector chunks, via the content test helpers. */
+export async function seedStudyContent(
+  school: SchoolSeed,
+  o: { chapters?: number; chunksPerChapter?: number } = {},
+): Promise<{ subjectId: string; chapterIds: string[]; chunkIds: string[] }> {
+  const { chapters = 3, chunksPerChapter = 4 } = o;
+  const item = await seedItem(school, { grade: 8, scope: 'school', ingestStatus: 'ready' });
+  await seedChunks(
+    item.id,
+    Array.from({ length: chapters }, (_, c) => ({
+      title: `Chapter ${c + 1}`,
+      texts: Array.from({ length: chunksPerChapter }, (_, k) => `Chapter ${c + 1} passage ${k + 1} about topic ${c + 1}.`),
+    })),
+  );
+  return withPlatform(async (tx) => {
+    const chs = await tx.select({ id: contentChapters.id }).from(contentChapters)
+      .where(inArray(contentChapters.contentItemId, [item.id])).orderBy(asc(contentChapters.ordinal));
+    const cks = await tx.select({ id: chunksTable.id }).from(chunksTable)
+      .where(inArray(chunksTable.contentItemId, [item.id])).orderBy(asc(chunksTable.ordinal));
+    return { subjectId: school.subjectId, chapterIds: chs.map((c) => c.id), chunkIds: cks.map((c) => c.id) };
+  });
+}

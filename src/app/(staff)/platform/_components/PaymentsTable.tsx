@@ -8,6 +8,7 @@ export default function PaymentsTable({ rows }: { rows: PendingRow[] }) {
     <Card title="Pending and lapsed">
       <DataTable
         rows={rows}
+        rowKey={(r) => r.subscriptionId}
         empty="No pending payments"
         columns={[
           { header: 'Student', cell: (r) => <>{r.studentName}{r.username ? <> ({r.username})</> : null}</> },

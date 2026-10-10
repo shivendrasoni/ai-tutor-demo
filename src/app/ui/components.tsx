@@ -41,10 +41,13 @@ export function DataTable<T>({
   columns,
   rows,
   empty,
+  rowKey,
 }: {
   columns: { header: string; cell: (row: T) => ReactNode }[];
   rows: T[];
   empty: string;
+  /** Stable per-row key; defaults to the row index. */
+  rowKey?: (row: T) => string;
 }) {
   if (rows.length === 0) return <EmptyState>{empty}</EmptyState>;
   return (
@@ -52,16 +55,16 @@ export function DataTable<T>({
       <table className={styles.table}>
         <thead>
           <tr>
-            {columns.map((c) => (
-              <th key={c.header} scope="col">{c.header}</th>
+            {columns.map((c, ci) => (
+              <th key={ci} scope="col">{c.header}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i}>
-              {columns.map((c) => (
-                <td key={c.header}>{c.cell(r)}</td>
+            <tr key={rowKey ? rowKey(r) : i}>
+              {columns.map((c, ci) => (
+                <td key={ci}>{c.cell(r)}</td>
               ))}
             </tr>
           ))}

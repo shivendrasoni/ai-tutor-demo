@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Badge, Card, DataTable, EmptyState, Field, PageShell, Stat } from '@/app/ui/components';
@@ -9,6 +10,31 @@ describe('components', () => {
     const html = renderToStaticMarkup(<DataTable columns={cols} rows={[{ n: 'Riya' }]} empty="x" />);
     expect(html).toContain('Riya');
     expect(html).toContain('Name');
+  });
+
+  it('DataTable keys rows by rowKey (index fallback) and header cells by index', () => {
+    type R = { id: string };
+    const cols = [
+      { header: 'Name', cell: (r: R) => r.id },
+      { header: 'Name', cell: (r: R) => r.id },
+    ];
+    const keysOf = (el: ReactElement<any>, tag: string): (string | null)[] => {
+      const out: (string | null)[] = [];
+      const walk = (n: any) => {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) return n.forEach(walk);
+        if (n.type === tag) out.push(n.key);
+        walk(n.props?.children);
+      };
+      walk(el);
+      return out;
+    };
+    const rows = [{ id: 'a' }, { id: 'b' }];
+    const byKey = DataTable({ columns: cols, rows, rowKey: (r: R) => r.id, empty: 'x' }) as ReactElement<any>;
+    expect(keysOf(byKey, 'tr')).toEqual([null, 'a', 'b']); // thead tr has no key
+    expect(keysOf(byKey, 'th')).toEqual(['0', '1']);
+    const byIdx = DataTable({ columns: cols, rows, empty: 'x' }) as ReactElement<any>;
+    expect(keysOf(byIdx, 'tr').slice(1)).toEqual(['0', '1']);
   });
 
   it('renders the simple components', () => {

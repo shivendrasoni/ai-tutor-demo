@@ -90,19 +90,23 @@ function isJsonContentType(header: string | null): boolean {
  * form/fetch posts, which cannot set it without a CORS preflight, are refused) and caps the body at
  * MAX_BODY_BYTES. Wrong content type, oversized or malformed bodies, and schema failures are 400 VALIDATION.
  */
-export async function readJson<S extends z.ZodType>(req: Request, schema: S): Promise<z.output<S>> {
+export async function readJson<S extends z.ZodType>(
+  req: Request,
+  schema: S,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<z.output<S>> {
   if (!isJsonContentType(req.headers.get('content-type'))) {
     throw validation('Content-Type must be application/json');
   }
   const declared = Number(req.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw validation('Request body is too large');
+  if (Number.isFinite(declared) && declared > maxBytes) throw validation('Request body is too large');
   let text: string;
   try {
     text = await req.text();
   } catch {
     throw validation('Request body could not be read');
   }
-  if (Buffer.byteLength(text, 'utf8') > MAX_BODY_BYTES) throw validation('Request body is too large');
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw validation('Request body is too large');
   let raw: unknown;
   try {
     raw = JSON.parse(text);

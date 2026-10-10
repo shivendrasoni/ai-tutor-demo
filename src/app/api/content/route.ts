@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { DomainError } from '@/lib/errors';
 import { handle, json, parseWith, requireActor } from '@/lib/http';
 import { readUpload } from '@/lib/multipart';
-import { listContent, uploadContent } from '@/modules/content';
+import { listContent, MAX_UPLOAD_BYTES, uploadContent } from '@/modules/content';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +41,7 @@ const Fields = z.object({
 
 export const POST = handle(async (req: Request) => {
   const actor = await requireActor(req);
-  const form = await readUpload(req);
+  const form = await readUpload(req, MAX_UPLOAD_BYTES);
   const file = form.get('file');
   if (!(file instanceof File)) throw new DomainError('VALIDATION', 'A file is required', { field: 'file' });
   const fields: Record<string, unknown> = {};

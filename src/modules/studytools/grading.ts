@@ -69,17 +69,20 @@ export const STUCK_AFTER_MS = 10 * 60_000;
 
 /**
  * Recovery for an attempt left `grading` (lost jobs, a worker that died on its last attempt, an outage during submit).
- * Past STUCK_AFTER_MS it re-enqueues a grade job for every subjective question without a result (duplicates are harmless:
- * the job is a no-op on an existing result); if that enqueue fails it zeroes them for review. Best effort: never throws.
+ * Past STUCK_AFTER_MS it re-enqueues a grade job for every subjective question without a result at most once per STUCK_AFTER_MS (`recovered_at`; the grade queue also dedupes by singletonKey); if that enqueue fails it zeroes them for review. Best effort: never throws.
  */
 export async function recoverStuckAttempt(schoolId: string, attemptId: string): Promise<void> {
   try {
     const pending = await withTenant(schoolId, async (tx) => {
-      const [a] = await tx.select().from(attempts).where(and(eq(attempts.id, attemptId), eq(attempts.schoolId, schoolId)));
+      const [a] = await tx.select().from(attempts).where(and(eq(attempts.id, attemptId), eq(attempts.schoolId, schoolId))).for('update');
       if (!a || a.status !== 'grading' || !a.submittedAt || now().getTime() - a.submittedAt.getTime() < STUCK_AFTER_MS) return [];
+      // At most one recovery per STUCK_AFTER_MS per attempt, so polling cannot re-enqueue (and re-bill) on every call.
+      if (a.recoveredAt && now().getTime() - a.recoveredAt.getTime() < STUCK_AFTER_MS) return [];
       const [art] = await tx.select({ content: artifacts.content }).from(artifacts).where(eq(artifacts.id, a.artifactId));
       const results = (a.results ?? {}) as Results;
-      return flattenQuestions(art?.content).filter((q) => q.type !== 'mcq' && !results[q.id]).map((q) => q.id);
+      const ids = flattenQuestions(art?.content).filter((q) => q.type !== 'mcq' && !results[q.id]).map((q) => q.id);
+      if (ids.length > 0) await tx.update(attempts).set({ recoveredAt: now() }).where(eq(attempts.id, attemptId));
+      return ids;
     });
     if (pending.length === 0) return;
     try {

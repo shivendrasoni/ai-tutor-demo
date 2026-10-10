@@ -196,6 +196,17 @@ describe('recovery of stuck attempts', () => {
     expect(rec.current.grade).toEqual([{ attemptId, schoolId: seed.a.schoolId, questionId: 'l0' }]);
   });
 
+  it('is rate limited: five polls of a stuck attempt enqueue once, and again only after another STUCK_AFTER_MS', async () => {
+    rec.current.grade.length = 0;
+    await later(STUCK_AFTER_MS + 1);
+    for (let i = 0; i < 5; i++) await getAttempt(student, attemptId);
+    expect(rec.current.grade.map((j) => j.questionId).sort()).toEqual(['l0', 's0']);
+    const at = (await row()).submittedAt!.getTime() + 2 * STUCK_AFTER_MS + 2;
+    setNow(() => new Date(at));
+    await getAttempt(student, attemptId);
+    expect(rec.current.grade).toHaveLength(4);
+  });
+
   it('younger than 10 minutes: no-op', async () => {
     rec.current.grade.length = 0;
     await later(STUCK_AFTER_MS - 1);
@@ -224,7 +235,7 @@ describe('recovery of stuck attempts', () => {
 describe('registered grade worker', () => {
   const handlerFor = async () => {
     const calls: any[][] = [];
-    await registerStudyToolsWorkers({ createQueue: async () => {}, work: async (...a: any[]) => void calls.push(a) } as any);
+    await registerStudyToolsWorkers({ createQueue: async () => {}, getQueue: async () => null, deleteQueue: async () => {}, work: async (...a: any[]) => void calls.push(a) } as any);
     return calls.find((c) => c[0] === 'studytools.grade')![2] as (jobs: unknown[]) => Promise<void>;
   };
 

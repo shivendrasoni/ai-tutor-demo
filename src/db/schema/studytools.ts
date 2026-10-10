@@ -59,6 +59,8 @@ export const attempts = pgTable(
     maxScore: numeric('max_score'),
     byChapter: jsonb('by_chapter'),
     gradedAt: timestamp('graded_at', { withTimezone: true }),
+    /** Last time stuck-grading recovery re-enqueued this attempt's jobs; rate-limits recovery. */
+    recoveredAt: timestamp('recovered_at', { withTimezone: true }),
   },
   (t) => [
     check('attempts_status_check', sql`${t.status} in ('in_progress','grading','graded')`),

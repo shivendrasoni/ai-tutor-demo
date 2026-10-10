@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 const Body = z.object({
   subscriptionId: z.string(),
-  amountMinor: z.number(),
+  amountMinor: z.number().int().positive(),
   currency: z.string().optional(),
   externalRef: z.string().optional(),
   paidAt: z.iso.datetime({ offset: true }),

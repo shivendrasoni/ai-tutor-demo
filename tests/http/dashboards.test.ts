@@ -4,6 +4,7 @@ import { closeDb, withPlatform } from '@/db/client';
 import { messages, payments, subscriptions } from '@/db/schema';
 import { createSession } from '@/modules/tenancy';
 import { resetDb } from '../helpers/db';
+import { recentPaidAt } from '../helpers/dates';
 import { insertMessage, seedAnalyticsWorld, type World } from '../helpers/analytics-seed';
 
 import * as schoolsRoute from '@/app/api/platform/schools/route';
@@ -174,7 +175,7 @@ describe('payments amount', () => {
     const rows = await withPlatform((tx) => tx.select().from(payments).where(eq(payments.subscriptionId, w.a.subscriptionId)));
     expect(rows).toHaveLength(0);
   });
-  const paidAt = '2026-10-01T00:00:00.000Z';
+  const paidAt = recentPaidAt().toISOString();
   it('amount different from plan price is stored as typed (Review Focus 3)', async () => {
     const platform = await sid(w.platform.userId);
     const res = await paymentsRoute.POST(req('/x', platform, { subscriptionId: w.a.subscriptionId, amountMinor: 40000, currency: 'INR', paidAt }));

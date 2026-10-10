@@ -19,6 +19,7 @@ import {
 } from '@/modules/tenancy';
 import { hashToken } from '@/modules/tenancy/auth/sessions';
 import { resetDb, seedTwoSchools, type Seed } from '../helpers/db';
+import { recentPaidAt } from '../helpers/dates';
 
 let seed: Seed;
 beforeEach(async () => {
@@ -215,7 +216,7 @@ describe('service-level isolation: School A actors vs School B ids', () => {
     const { a, b, platform } = seed;
     // Make B distinguishable: B becomes active with a period end; A stays pending.
     await recordPayment(platform, {
-      subscriptionId: b.subscriptionId, amountMinor: 49900, currency: 'INR', paidAt: new Date('2026-10-01T00:00:00Z'),
+      subscriptionId: b.subscriptionId, amountMinor: 49900, currency: 'INR', paidAt: recentPaidAt(),
     });
     expect(await studentStatus(a.student)).toEqual({ status: 'pending_payment', planName: 'Monthly', periodEnd: null });
     expect((await studentStatus(b.student)).status).toBe('active');

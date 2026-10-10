@@ -7,6 +7,8 @@ import { run } from '../../scripts/admin';
 import { login } from '@/modules/tenancy';
 import { createSession } from '@/modules/tenancy/auth/sessions';
 import { resetDb, seedTwoSchools } from '../helpers/db';
+import { recentPaidAt } from '../helpers/dates';
+import { addInterval } from '@/modules/enrollment/periods';
 
 beforeEach(resetDb);
 afterAll(closeDb);
@@ -66,12 +68,13 @@ describe('scripts/admin run()', () => {
     expect(noAs.code).not.toBe(0);
     expect(noAs.err.join('\n')).toMatch(/--as/);
 
+    const paidAt = recentPaidAt();
     const paid = await cli(
       'record-payment', '--subscription', subscriptionId, '--amount-minor', '49900',
-      '--ref', 'UPI-1', '--paid-at', '2026-10-01T00:00:00Z', '--as', 'ops_test',
+      '--ref', 'UPI-1', '--paid-at', paidAt.toISOString(), '--as', 'ops_test',
     );
     expect(paid.code).toBe(0);
-    expect(paid.json()).toEqual({ periodStart: '2026-10-01T00:00:00.000Z', periodEnd: '2026-11-01T00:00:00.000Z' });
+    expect(paid.json()).toEqual({ periodStart: paidAt.toISOString(), periodEnd: addInterval(paidAt, 'monthly').toISOString() });
     const [pay] = await withPlatform((tx) => tx.select().from(payments));
     expect(pay).toMatchObject({ recordedBy: opsId, externalRef: 'UPI-1', currency: 'INR', amountMinor: 49900 });
     const [p] = await withPlatform((tx) => tx.select().from(studentProfiles).where(eq(studentProfiles.userId, studentUserId)));
@@ -87,7 +90,7 @@ describe('scripts/admin run()', () => {
     expect(future.err.join('\n')).toMatch(/VALIDATION.*future/);
     const dupe = await cli(
       'record-payment', '--subscription', subscriptionId, '--amount-minor', '49900',
-      '--ref', 'UPI-1', '--paid-at', '2026-10-02T00:00:00Z', '--as', 'ops_test',
+      '--ref', 'UPI-1', '--paid-at', recentPaidAt(0).toISOString(), '--as', 'ops_test',
     );
     expect(dupe.code).toBe(1);
     expect(dupe.err.join('\n')).toMatch(/duplicate_payment/);

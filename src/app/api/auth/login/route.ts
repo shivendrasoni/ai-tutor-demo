@@ -8,7 +8,7 @@ import { login, normalizeUsername } from '@/modules/tenancy';
 
 export const dynamic = 'force-dynamic';
 
-const Body = z.object({ username: z.string().max(200), password: z.string().max(256) });
+const Body = z.object({ username: z.string().min(1).max(200), password: z.string().min(1).max(1000) });
 
 async function giveBack(keys: string[]): Promise<void> {
   for (const key of keys) {
@@ -44,7 +44,7 @@ export const POST = handle(async (req: Request) => {
 
   try {
     const { token, actor } = await login(username, password);
-    const status = actor.roles.includes('student') ? (await studentStatus(actor)).status : undefined;
+    const status = !actor.isPlatformAdmin && actor.roles.includes('student') ? (await studentStatus(actor)).status : undefined;
     await giveBack(reserved); // only failures count
     return json(
       { roles: actor.roles, isPlatformAdmin: actor.isPlatformAdmin, home: homeFor(actor, status) },

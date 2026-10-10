@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, withPlatform } from '@/db/client';
-import { studentProfiles, users } from '@/db/schema';
+import { rateLimits, studentProfiles, users } from '@/db/schema';
 import { createSession } from '@/modules/tenancy';
 import { recordPayment, removeStudent } from '@/modules/enrollment';
 import { DomainError } from '@/lib/errors';
@@ -593,5 +593,57 @@ describe('handle()', () => {
     const res = await h(new Request('http://localhost/x'));
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: 'nope', details: { field: 'x' } } });
+  });
+});
+
+describe('fix round 1', () => {
+  it('POST /api/join returns studentUserId and subscriptionId', async () => {
+    const res = await joinRoute.POST(req('POST', '/api/join', { body: signupBody() }));
+    expect(res.status).toBe(201);
+    const b = await res.json();
+    expect(typeof b.studentUserId).toBe('string');
+    expect(typeof b.subscriptionId).toBe('string');
+  });
+
+  it('POST /api/invite/:token returns studentUserId and subscriptionId', async () => {
+    const cookie = await sidFor(seed.a.branchAdmin.userId);
+    const add = await studentsRoute.POST(req('POST', '/x', { cookie, body: {
+      branchId: seed.a.branchId, grade: 8, studentName: 'Kabir', parentName: 'P', parentPhone: '9000000000',
+    } }));
+    const token = (await add.json()).inviteUrl.split('/').pop()!;
+    const res = await inviteRoute.POST(
+      req('POST', `/api/invite/${token}`, { body: { planId: seed.planId, username: 'kabir.k', password: 'kabir-password' } }),
+      ctx({ token }),
+    );
+    expect(res.status).toBe(200);
+    const b = await res.json();
+    expect(typeof b.studentUserId).toBe('string');
+    expect(typeof b.subscriptionId).toBe('string');
+  });
+
+  it('login with an empty password or username → 400 and consumes no rate-limit window', async () => {
+    const u = await usernameOf(seed.a.studentId);
+    await expectError(await loginRoute.POST(req('POST', '/api/auth/login', { body: { username: u, password: '' } })), 400, 'VALIDATION');
+    await expectError(await loginRoute.POST(req('POST', '/api/auth/login', { body: { username: '', password: 'x' } })), 400, 'VALIDATION');
+    await expectError(await loginRoute.POST(req('POST', '/api/auth/login', { body: { username: u, password: 'x'.repeat(1001) } })), 400, 'VALIDATION');
+    const rows = await withPlatform((tx) => tx.select().from(rateLimits));
+    expect(rows).toEqual([]);
+  });
+
+  it('payments: amountMinor 0 → 400 VALIDATION; non-ISO paidAt → 400', async () => {
+    const cookie = await sidFor(seed.platform.userId);
+    const paidAt = recentPaidAt().toISOString();
+    await expectError(await paymentsRoute.POST(req('POST', '/x', { cookie, body: { subscriptionId: seed.a.subscriptionId, amountMinor: 0, paidAt } })), 400, 'VALIDATION');
+    await expectError(await paymentsRoute.POST(req('POST', '/x', { cookie, body: { subscriptionId: seed.a.subscriptionId, amountMinor: 5, paidAt: '12' } })), 400, 'VALIDATION');
+  });
+
+  it('/api/me with a session whose user row is gone → 401', async () => {
+    const cookie = await sidFor(seed.a.teacher.userId);
+    const spy = vi.spyOn(await import('@/modules/tenancy'), 'resolveActor').mockResolvedValue({ ...seed.a.teacher, userId: '00000000-0000-4000-8000-000000000000' });
+    try {
+      await expectError(await meRoute.GET(req('GET', '/api/me', { cookie })), 401, 'UNAUTHENTICATED');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

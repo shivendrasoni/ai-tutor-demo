@@ -21,6 +21,5 @@ export const POST = handle(async (req: Request, ctx: Ctx) => {
   await enforce(`join:submit:${clientIp(req)}`, limits.joinSubmitPerIp(), WINDOW_1_HOUR);
   const { token } = await ctx.params;
   const body = await readJson(req, Body);
-  await completeInvite({ token, ...body });
-  return json({ ok: true });
+  return json(await completeInvite({ token, ...body }));
 });

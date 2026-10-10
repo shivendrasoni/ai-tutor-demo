@@ -22,6 +22,5 @@ const Body = z.object({
 export const POST = handle(async (req: Request) => {
   await enforce(`join:submit:${clientIp(req)}`, limits.joinSubmitPerIp(), WINDOW_1_HOUR);
   const body = await readJson(req, Body);
-  await signupWithCode(body);
-  return json({ ok: true }, { status: 201 });
+  return json(await signupWithCode(body), { status: 201 });
 });

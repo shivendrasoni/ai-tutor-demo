@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCitation, parseSseChunks } from '@/lib/sse-client';
+import { formatCitation, parseSseChunks, shouldRestoreDraft } from '@/lib/sse-client';
 
 describe('parseSseChunks', () => {
   it('parses complete events and returns the remainder', () => {
@@ -36,5 +36,12 @@ describe('formatCitation', () => {
   it('formats page ranges and single pages', () => {
     expect(formatCitation({ ...base, pageStart: 12, pageEnd: 13 })).toBe('Maths 8 · Fractions · p. 12–13');
     expect(formatCitation({ ...base, pageStart: 12, pageEnd: 12 })).toBe('Maths 8 · Fractions · p. 12');
+  });
+});
+
+describe('shouldRestoreDraft', () => {
+  it('restores only when the server never stored the message (network or 4xx), never for 5xx/in-stream errors', () => {
+    for (const status of [0, 400, 404, 429]) expect(shouldRestoreDraft(status)).toBe(true);
+    for (const status of [200, 500, 503]) expect(shouldRestoreDraft(status)).toBe(false);
   });
 });

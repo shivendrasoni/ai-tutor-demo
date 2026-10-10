@@ -45,6 +45,13 @@ export type StreamHandlers = {
   signal?: AbortSignal;
 };
 
+/**
+ * Whether the composer should get the text back after a failed send. Network failures and 4xx replies happen before
+ * the server stores the message. A 503 (TUTOR_BUSY before the first event) or an in-stream error (200) comes after
+ * it was stored, so restoring the draft would make a re-send duplicate it.
+ */
+export const shouldRestoreDraft = (status: number): boolean => status === 0 || (status >= 400 && status < 500);
+
 /** POSTs a student message and dispatches the SSE events to the handlers. Never throws. */
 export async function streamMessage(conversationId: string, text: string, h: StreamHandlers): Promise<void> {
   const fail = (code: string, message: string, status: number) => h.onError?.({ code, message, status });

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, GENERIC_ERROR, NETWORK_ERROR } from '@/app/(public)/_lib/api';
-import { formatCitation, streamMessage, type Citation } from '@/lib/sse-client';
+import { formatCitation, shouldRestoreDraft, streamMessage, type Citation } from '@/lib/sse-client';
 import styles from '../../learn.module.css';
 
 type Msg = { id: string; role: 'user' | 'assistant'; content: string; citations: Citation[]; feedback: string | null };
@@ -99,8 +99,8 @@ export default function ChatView({ conversationId }: { conversationId: string })
         : f.code === 'TUTOR_BUSY' ? f.message
         : f.message || GENERIC_ERROR,
       );
-      // A pre-stream failure never stored the message: give the text back so it is not lost.
-      if (f.status !== 200) setDraft(text);
+      // Only if the server never stored the message (network/4xx); a 503 TUTOR_BUSY comes after it was stored.
+      if (shouldRestoreDraft(f.status)) setDraft(text);
     }
     await load();
     setPendingUser(null);

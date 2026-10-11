@@ -78,6 +78,11 @@ export async function runSkillStructured<T>(
     );
   };
 
+  // OpenAI strict structured outputs require every property in `required`, which our optional fields
+  // (options, correctIndex, ...) violate. Non-strict mode still constrains to JSON; zod validates the result.
+  const skillOptions = (skill.providerOptions ?? {}) as Record<string, Record<string, unknown>>;
+  const providerOptions = { ...skillOptions, openai: { strictJsonSchema: false, ...skillOptions.openai } };
+
   let prompt = basePrompt;
   for (let attempt = 0; attempt < 2; attempt++) {
     let schemaError: string | null = null;
@@ -88,7 +93,7 @@ export async function runSkillStructured<T>(
     let failedUsage: { inputTokens?: number; outputTokens?: number } | undefined;
     for (let tries = 0; ; tries++) {
       try {
-        res = await generateText({ model, system, prompt, output: Output.object({ schema: a.schema }), temperature: 0, maxRetries: 0, providerOptions: skill.providerOptions as never });
+        res = await generateText({ model, system, prompt, output: Output.object({ schema: a.schema }), temperature: 0, maxRetries: 0, providerOptions: providerOptions as never });
         break;
       } catch (e) {
         if (NoObjectGeneratedError.isInstance(e)) {

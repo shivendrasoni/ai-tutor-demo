@@ -46,6 +46,8 @@ describe('validateGenerated: practice test', () => {
     ['wrong question count', practice(9), false],
     ['mcq correctIndex 4', practice(10, { q: 0, correctIndex: 4 }), false],
     ['mcq with 3 options', practice(10, { q: 0, options: ['a', 'b', 'c'] }), false],
+    ['mcq with an empty option', practice(10, { q: 0, options: ['a', '', 'c', 'd'] }), false],
+    ['short padded with placeholder options (models do this)', practice(10, { q: 9, options: ['', '', '', ''], correctIndex: 0 }), true],
     ['short with 1 rubric point', practice(10, { q: 9, rubric: ['x'] }), false],
     ['unknown passage P99', practice(10, { q: 0, passageRefs: ['P99'] }), false],
     ['malformed passage ref', practice(10, { q: 0, passageRefs: ['p1'] }), false],
@@ -148,6 +150,14 @@ describe('resolvePassageRefs', () => {
     });
     expect(new Set(sourceChunkIds).size).toBe(sourceChunkIds.length);
     expect(sourceChunkIds).toHaveLength(10);
+  });
+  it('drops placeholder mcq fields from non-mcq questions', () => {
+    const { content } = resolvePassageRefs(practice(10, { q: 9, options: ['', '', '', ''], correctIndex: 0 }), hits);
+    const short = content.questions[9];
+    expect(short.type).toBe('short');
+    expect(short).not.toHaveProperty('options');
+    expect(short).not.toHaveProperty('correctIndex');
+    expect(content.questions[0].options).toHaveLength(4);
   });
   it('resolves mock sections and notes, deduplicating', () => {
     const m = resolvePassageRefs(mockFor(std80), hits);

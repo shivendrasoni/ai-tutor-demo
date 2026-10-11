@@ -45,7 +45,7 @@ function checkRefs(label: string, chapterId: string, refs: string[], ctx: Valida
 function checkQuestion(q: Question, label: string, ctx: ValidationCtx, errors: string[]): void {
   checkRefs(label, q.chapterId, q.passageRefs, ctx, errors);
   if (q.type === 'mcq') {
-    if (!q.options) errors.push(`${label}: mcq needs exactly 4 options`);
+    if (!q.options || q.options.some((o) => o.trim() === '')) errors.push(`${label}: mcq needs exactly 4 non-empty options`);
     if (q.correctIndex === undefined || q.correctIndex < 0 || q.correctIndex > 3) errors.push(`${label}: mcq needs correctIndex in 0..3`);
   } else {
     if (!q.modelAnswer) errors.push(`${label}: ${q.type} question needs a modelAnswer`);
@@ -159,7 +159,11 @@ export function resolvePassageRefs<T extends Generated>(
     }
     return ids;
   };
-  const withIds = <X extends { passageRefs: string[] }>(x: X) => ({ ...x, chunkIds: resolve(x.passageRefs) });
+  const withIds = <X extends { passageRefs: string[]; type?: string }>(x: X) => {
+    // Models pad non-mcq questions with placeholder options/correctIndex; they must not reach storage or the UI.
+    const { options: _options, correctIndex: _correctIndex, ...rest } = x as X & { options?: unknown; correctIndex?: unknown };
+    return { ...(x.type === undefined || x.type === 'mcq' ? x : rest), chunkIds: resolve(x.passageRefs) };
+  };
   const v = value as Record<string, unknown>;
   let body: Record<string, unknown>;
   if ('questions' in value) body = { ...v, questions: (value as PracticeTest).questions.map(withIds) };

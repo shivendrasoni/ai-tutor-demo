@@ -75,6 +75,7 @@ export async function handleGenerateJob(job: { data: GenerateJob } & Partial<Job
         .where(and(eq(artifacts.id, artifactId), eq(artifacts.status, 'generating'))),
     );
   } catch (e) {
+    console.error('[studytools] generation failed', artifactId, e);
     const permanent = e instanceof DomainError && (e.code === 'VALIDATION' || e.code === 'FORBIDDEN');
     if (permanent || isFinalAttempt) {
       await markFailed(schoolId, artifactId);

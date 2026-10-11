@@ -1,7 +1,8 @@
 import ContentList from '../../_components/ContentList';
 import NotAllowed from '../../_components/NotAllowed';
+import PageHeading from '../../_components/PageHeading';
+import { Card } from '@/app/ui/components';
 import UploadForm from '../../_components/UploadForm';
-import styles from '../../staff.module.css';
 import { requireStaffPageActor } from '../../_lib/actor';
 import { listContent, listUploadTargets } from '@/modules/content';
 
@@ -19,19 +20,22 @@ export default async function SchoolContentPage() {
   const toggleBranchId = !actor.isPlatformAdmin && !isSchoolAdmin ? actor.branchId : null;
 
   return (
-    <>
-      <h1 className={styles.title}>Content</h1>
-      <p className={styles.lead}>Upload books and materials for your students.</p>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeading title="Content" lead="Upload books and materials for your students." />
       {actor.isPlatformAdmin ? (
-        <p className={styles.hint}>Uploads are made by school staff. You can review and manage content here.</p>
+        <p className="text-sm text-muted-foreground">
+          Uploads are made by school staff. You can review and manage content here.
+        </p>
       ) : (
-        <UploadForm
-          targets={targets}
-          mode={isSchoolAdmin ? 'school_admin' : 'branch_admin'}
-        />
+        <Card>
+          <UploadForm
+            targets={targets}
+            mode={isSchoolAdmin ? 'school_admin' : 'branch_admin'}
+          />
+        </Card>
       )}
-      <h2 className={styles.heading}>Uploaded content</h2>
+      <h2 className="text-lg font-semibold">Uploaded content</h2>
       <ContentList initialItems={items} toggleBranchId={toggleBranchId} />
-    </>
+    </div>
   );
 }

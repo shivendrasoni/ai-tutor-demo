@@ -1,11 +1,10 @@
 import { Card, Stat } from '@/app/ui/components';
-import styles from '@/app/ui/ui.module.css';
 import type { RoutingStats } from '@/modules/analytics';
 
 export default function RoutingCards({ stats }: { stats: RoutingStats }) {
   return (
     <Card title="Routing health">
-      <div className={styles.grid}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Turns" value={stats.turns} />
         <Stat label="Advanced share" value={`${Math.round(stats.advancedShare * 100)}%`} />
         <Stat label="Off-topic blocks" value={stats.offTopicBlocks} />

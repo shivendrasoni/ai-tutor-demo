@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import type { ContentItemRow, IngestStatus } from '@/modules/content';
 // Direct import (not the module index) so the client bundle does not pull in server code.
 import { STUCK_INGEST_AFTER_MS } from '@/modules/content/stuck';
-import styles from '../staff.module.css';
+import { AlertCircle, Eye, EyeOff, FileText, RotateCw, Trash2 } from 'lucide-react';
+import { Badge } from '@/app/ui/components';
+import { Button } from '@/components/ui/button';
 
 type Props = { initialItems: ContentItemRow[]; toggleBranchId: string | null };
 
@@ -14,6 +16,12 @@ const LABEL: Record<IngestStatus, string> = {
   processing: 'Processing',
   ready: 'Ready',
   failed: 'Failed',
+};
+const TONE: Record<IngestStatus, 'ok' | 'warn' | 'bad' | 'muted'> = {
+  queued: 'muted',
+  processing: 'warn',
+  ready: 'ok',
+  failed: 'bad',
 };
 const SCOPE: Record<string, string> = { school: 'Whole school', branch: 'Branch', section: 'Section' };
 
@@ -123,42 +131,61 @@ export default function ContentList({ initialItems, toggleBranchId }: Props) {
     );
   };
 
-  if (items.length === 0) return <p className={styles.hint}>Nothing uploaded yet.</p>;
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">Nothing uploaded yet.</p>;
 
   return (
     <>
-      <div role="alert">{error && <p className={styles.error}>{error}</p>}</div>
-      <ul className={styles.list}>
+      <div role="alert">
+        {error && (
+          <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{error}
+          </p>
+        )}
+      </div>
+      <ul className="flex flex-col gap-3">
         {items.map((item) => {
           const hidden = toggleBranchId !== null && item.excludedBranchIds.includes(toggleBranchId);
           const busy = busyId === item.id;
           return (
-            <li key={item.id} className={styles.item}>
-              <h3 className={styles.itemTitle}>{item.title}</h3>
-              <p className={styles.meta}>
-                {item.kind === 'book' ? 'Book' : 'Material'} · {item.subjectName} · Grade {item.grade} ·{' '}
-                {SCOPE[item.scope]}
-              </p>
-              <span className={`${styles.badge} ${styles[item.status]}`}>{LABEL[item.status]}</span>
-              {item.status === 'failed' && item.ingestError && <p className={styles.error}>{item.ingestError}</p>}
-              {item.ocrSkippedPages > 0 && (
-                <p className={styles.meta}>OCR skipped on {item.ocrSkippedPages} pages</p>
+            <li key={item.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <FileText className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+                  <div className="min-w-0 space-y-1">
+                    <h3 className="break-words font-semibold">{item.title}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {item.kind === 'book' ? 'Book' : 'Material'} · {item.subjectName} · Grade {item.grade} ·{' '}
+                      {SCOPE[item.scope]}
+                    </p>
+                  </div>
+                </div>
+                <Badge tone={TONE[item.status]}>{LABEL[item.status]}</Badge>
+              </div>
+              {item.status === 'failed' && item.ingestError && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  {item.ingestError}
+                </p>
               )}
-              <div className={styles.actions}>
+              {item.ocrSkippedPages > 0 && (
+                <p className="text-sm text-muted-foreground">OCR skipped on {item.ocrSkippedPages} pages</p>
+              )}
+              <div className="flex flex-wrap gap-2">
                 {(item.status === 'failed' || isStuckCandidate(item)) && (
-                  <button type="button" className={styles.secondary} disabled={busy} onClick={() => retry(item.id)}>
-                    Retry
-                  </button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => retry(item.id)}>
+                    <RotateCw className="size-4" />Retry
+                  </Button>
                 )}
                 {toggleBranchId && item.scope === 'school' && (
-                  <button type="button" className={styles.secondary} disabled={busy}
+                  <Button type="button" variant="outline" size="sm" disabled={busy}
                     onClick={() => toggle(item, !hidden)}>
+                    {hidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                     {hidden ? 'Show for this branch' : 'Hide for this branch'}
-                  </button>
+                  </Button>
                 )}
-                <button type="button" className={styles.danger} disabled={busy} onClick={() => remove(item)}>
-                  Delete
-                </button>
+                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => remove(item)}
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive">
+                  <Trash2 className="size-4" />Delete
+                </Button>
               </div>
             </li>
           );

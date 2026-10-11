@@ -2,6 +2,9 @@
 import { useRouter } from 'next/navigation';
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Field } from '@/app/ui/components';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import type { BranchListing } from '@/modules/analytics';
 import type { SetupProps } from './SetupSection';
 
@@ -21,14 +24,14 @@ export function parseSetupError(body: unknown): SetupError {
 
 export function SetupFormError({ error, onPick }: { error: SetupError; onPick: (suggestion: string) => void }) {
   return (
-    <div role="alert">
+    <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
       <p>{error.message}</p>
       {error.suggestions.length > 0 ? (
         <>
           <p>Try one of these:</p>
-          <p>
+          <p className="flex flex-wrap gap-2">
             {error.suggestions.map((s) => (
-              <button key={s} type="button" onClick={() => onPick(s)}>{s}</button>
+              <Button key={s} type="button" variant="outline" size="sm" onClick={() => onPick(s)}>{s}</Button>
             ))}
           </p>
         </>
@@ -90,12 +93,13 @@ function SetupForm({
   }
 
   return (
-    <form ref={formRef} onSubmit={submit} aria-label={title} onChange={() => setOk(false)}>
-      <h3>{title}</h3>
+    <form ref={formRef} onSubmit={submit} aria-label={title} onChange={() => setOk(false)}
+      className="rounded-xl border bg-muted/20 p-4">
+      <h3 className="mb-3 font-semibold">{title}</h3>
       {children}
-      <button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
-      {ok ? <p role="status">{done}</p> : null}
-      {error ? <SetupFormError error={error} onPick={pick} /> : null}
+      <Button type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</Button>
+      {ok ? <p role="status" className="mt-3 text-sm text-success">{done}</p> : null}
+      {error ? <div className="mt-3"><SetupFormError error={error} onPick={pick} /></div> : null}
     </form>
   );
 }
@@ -111,14 +115,14 @@ export function AddSectionForm({ branches }: { branches: BranchListing[] }) {
       build={(fd) => ({ branchId: str(fd, 'branchId'), grade: Number(str(fd, 'grade')), name: str(fd, 'name') })}
     >
       {branches.length > 1 ? (
-        <Field label="Branch"><select name="branchId">{branchOptions(branches)}</select></Field>
+        <Field label="Branch"><NativeSelect name="branchId">{branchOptions(branches)}</NativeSelect></Field>
       ) : (
         <input type="hidden" name="branchId" value={branches[0]?.branchId ?? ''} />
       )}
       <Field label="Grade">
-        <select name="grade" defaultValue="8">{GRADES.map((g) => <option key={g} value={g}>{g}</option>)}</select>
+        <NativeSelect name="grade" defaultValue="8">{GRADES.map((g) => <option key={g} value={g}>{g}</option>)}</NativeSelect>
       </Field>
-      <Field label="Section name"><input name="name" required maxLength={50} placeholder="8-A" /></Field>
+      <Field label="Section name"><Input name="name" required maxLength={50} placeholder="8-A" /></Field>
     </SetupForm>
   );
 }
@@ -129,7 +133,7 @@ export function AddSubjectForm() {
       title="Add a subject" url="/api/school/subjects" submitLabel="Add subject" done="Subject added."
       build={(fd) => ({ name: str(fd, 'name') })}
     >
-      <Field label="Subject name"><input name="name" required maxLength={100} /></Field>
+      <Field label="Subject name"><Input name="name" required maxLength={100} /></Field>
     </SetupForm>
   );
 }
@@ -145,14 +149,14 @@ export function AddTeacherForm({ branches }: { branches: BranchListing[] }) {
       })}
     >
       {branches.length > 1 ? (
-        <Field label="Teacher branch"><select name="branchId">{branchOptions(branches)}</select></Field>
+        <Field label="Teacher branch"><NativeSelect name="branchId">{branchOptions(branches)}</NativeSelect></Field>
       ) : (
         <input type="hidden" name="branchId" value={branches[0]?.branchId ?? ''} />
       )}
-      <Field label="Teacher name"><input name="teacherName" required maxLength={200} /></Field>
-      <Field label="Teacher username"><input name="username" required maxLength={64} autoComplete="off" /></Field>
+      <Field label="Teacher name"><Input name="teacherName" required maxLength={200} /></Field>
+      <Field label="Teacher username"><Input name="username" required maxLength={64} autoComplete="off" /></Field>
       <Field label="Teacher password">
-        <input name="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" />
+        <Input name="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" />
       </Field>
     </SetupForm>
   );
@@ -162,9 +166,9 @@ export function AssignTeacherForm({ branches, subjects, teachers }: Pick<SetupPr
   const [teacherId, setTeacherId] = useState(teachers[0]?.userId ?? '');
   if (teachers.length === 0 || subjects.length === 0) {
     return (
-      <div>
-        <h3>Assign a teacher</h3>
-        <p>{teachers.length === 0 ? 'Create a teacher account first.' : 'Add a subject first.'}</p>
+      <div className="rounded-xl border bg-muted/20 p-4">
+        <h3 className="mb-3 font-semibold">Assign a teacher</h3>
+        <p className="text-sm text-muted-foreground">{teachers.length === 0 ? 'Create a teacher account first.' : 'Add a subject first.'}</p>
       </div>
     );
   }
@@ -177,20 +181,20 @@ export function AssignTeacherForm({ branches, subjects, teachers }: Pick<SetupPr
       build={(fd) => ({ teacherId: str(fd, 'teacherId'), sectionId: str(fd, 'sectionId'), subjectId: str(fd, 'subjectId') })}
     >
       <Field label="Teacher">
-        <select name="teacherId" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+        <NativeSelect name="teacherId" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
           {teachers.map((t) => (
             <option key={t.userId} value={t.userId}>{t.name} ({t.username}, {t.branchName})</option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <Field label="Section">
-        <select name="sectionId" required>
+        <NativeSelect name="sectionId" required>
           {sections.length === 0 ? <option value="">No sections in this branch</option> : null}
           {sections.map((s) => <option key={s.id} value={s.id}>{s.grade} {s.name}</option>)}
-        </select>
+        </NativeSelect>
       </Field>
       <Field label="Subject">
-        <select name="subjectId">{subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <NativeSelect name="subjectId">{subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</NativeSelect>
       </Field>
     </SetupForm>
   );

@@ -10,10 +10,11 @@ export default function SchoolsList({ schools }: { schools: SchoolListing[] }) {
           {s.branches.length === 0 ? (
             <EmptyState>No branches yet</EmptyState>
           ) : (
-            <ul>
+            <ul className="divide-y rounded-xl border">
               {s.branches.map((b) => (
-                <li key={b.id}>
-                  {b.name} <code>{b.signupCode}</code>{' '}
+                <li key={b.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
+                  <span className="font-medium">{b.name}</span>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{b.signupCode}</code>
                   <Badge tone={b.signupCodeEnabled ? 'ok' : 'muted'}>{b.signupCodeEnabled ? 'enabled' : 'disabled'}</Badge>
                 </li>
               ))}

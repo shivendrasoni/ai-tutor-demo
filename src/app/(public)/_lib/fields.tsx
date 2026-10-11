@@ -3,7 +3,11 @@
 import { useId, useRef, useState, type HTMLInputTypeAttribute, type ReactNode } from 'react';
 import { apiFetch } from './api';
 import { USERNAME_RULES_HINT, usernameCheckOutcome, type UsernameCheck } from './username';
-import styles from '../public.module.css';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+const HINT = 'text-sm text-muted-foreground';
 
 export function TextField(props: {
   label: string;
@@ -18,9 +22,9 @@ export function TextField(props: {
   const id = useId();
   const hintId = `${id}-hint`;
   return (
-    <div className={styles.field}>
-      <label htmlFor={id} className={styles.label}>{props.label}</label>
-      <input
+    <div className="grid min-w-0 gap-2">
+      <Label htmlFor={id}>{props.label}</Label>
+      <Input
         id={id}
         type={props.type ?? 'text'}
         value={props.value}
@@ -30,7 +34,7 @@ export function TextField(props: {
         maxLength={props.maxLength}
         aria-describedby={props.hint ? hintId : undefined}
       />
-      {props.hint ? <p id={hintId} className={styles.hint}>{props.hint}</p> : null}
+      {props.hint ? <p id={hintId} className={HINT}>{props.hint}</p> : null}
     </div>
   );
 }
@@ -94,9 +98,9 @@ export function UsernameField(props: {
   }
 
   return (
-    <div className={styles.field}>
-      <label htmlFor={id} className={styles.label}>Username</label>
-      <input
+    <div className="grid min-w-0 gap-2">
+      <Label htmlFor={id}>Username</Label>
+      <Input
         id={id}
         value={value}
         onChange={(e) => edit(e.target.value)}
@@ -109,12 +113,12 @@ export function UsernameField(props: {
         maxLength={200}
         aria-describedby={hintId}
       />
-      <p id={hintId} className={styles.hint} role="status">{hint || USERNAME_RULES_HINT}</p>
+      <p id={hintId} className={HINT} role="status">{hint || USERNAME_RULES_HINT}</p>
       {suggestions.length > 0 ? (
-        <div className={styles.chips}>
-          <span className={styles.hint}>Try one of these:</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={HINT}>Try one of these:</span>
           {suggestions.map((s) => (
-            <button key={s} type="button" className={styles.chip} onClick={() => pick(s)}>{s}</button>
+            <Button key={s} type="button" variant="secondary" size="sm" className="rounded-full" onClick={() => pick(s)}>{s}</Button>
           ))}
         </div>
       ) : null}

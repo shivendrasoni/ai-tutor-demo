@@ -2,6 +2,11 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Card, Field } from '@/app/ui/components';
+import { AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+
 import { postJson } from './api';
 
 export default function CreateSchoolForm() {
@@ -21,11 +26,11 @@ export default function CreateSchoolForm() {
   }
   return (
     <Card title="Create a school">
-      <form onSubmit={submit}>
-        <Field label="Name"><input name="name" required maxLength={200} /></Field>
-        <Field label="Board"><input name="board" required maxLength={50} placeholder="CBSE" /></Field>
-        <button type="submit" disabled={busy}>Create school</button>
-        {error ? <p role="alert">{error}</p> : null}
+      <form onSubmit={submit} className="grid gap-x-4 sm:grid-cols-2">
+        <Field label="Name"><Input name="name" required maxLength={200} /></Field>
+        <Field label="Board"><Input name="board" required maxLength={50} placeholder="CBSE" /></Field>
+        <div className="sm:col-span-2"><Button type="submit" disabled={busy}>Create school</Button></div>
+        <div className="sm:col-span-2">{error ? <Alert variant="destructive" className="mt-4"><AlertCircle /><AlertDescription>{error}</AlertDescription></Alert> : null}</div>
       </form>
     </Card>
   );

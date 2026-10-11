@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import CostTables from '../_components/CostTables';
 import DaysToggle from '../_components/DaysToggle';
@@ -22,11 +21,11 @@ export default async function CostsPage({ searchParams }: { searchParams: Promis
     return pageError('Costs', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Costs</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Costs</h1>
       <PlatformNav />
       <DaysToggle base="/platform/costs" days={days === '30' ? 30 : 7} />
       <CostTables data={data} />
-    </>
+    </div>
   );
 }

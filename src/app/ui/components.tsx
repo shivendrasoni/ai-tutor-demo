@@ -1,40 +1,55 @@
 import type { ReactNode } from 'react';
-import styles from './ui.module.css';
+import { Badge as UiBadge } from '@/components/ui/badge';
+import { Card as UiCard, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 export function PageShell({ title, nav, children }: { title: string; nav?: ReactNode; children: ReactNode }) {
   return (
-    <main className={styles.shell}>
-      <h1 className={styles.title}>{title}</h1>
-      {nav ? <nav className={styles.nav}>{nav}</nav> : null}
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 sm:px-6">
+      <h1 className="text-2xl font-bold sm:text-3xl">{title}</h1>
+      {nav ? <nav className="flex flex-wrap gap-2">{nav}</nav> : null}
       {children}
-    </main>
+    </div>
   );
 }
 
 export function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <section className={styles.card}>
-      {title ? <h2 className={styles.cardTitle}>{title}</h2> : null}
-      {children}
-    </section>
+    <UiCard className="min-w-0">
+      {title ? (
+        <CardHeader>
+          <CardTitle className="text-lg">{title}</CardTitle>
+        </CardHeader>
+      ) : null}
+      <CardContent className={cn(!title && 'pt-6')}>{children}</CardContent>
+    </UiCard>
   );
 }
 
 export function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className={styles.stat}>
-      <div className={styles.statValue}>{value}</div>
-      <div className={styles.statLabel}>{label}</div>
+    <div className="flex flex-col gap-1 rounded-xl bg-muted/60 px-4 py-3">
+      <div className="text-2xl font-bold leading-tight">{value}</div>
+      <div className="text-sm text-muted-foreground">{label}</div>
     </div>
   );
 }
 
+const tones = {
+  ok: 'border-transparent bg-success/15 text-success',
+  warn: 'border-transparent bg-warning/20 text-amber-700 dark:text-warning',
+  bad: 'border-transparent bg-destructive/15 text-destructive',
+  muted: 'border-transparent bg-muted text-muted-foreground',
+};
+
 export function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'bad' | 'muted'; children: ReactNode }) {
-  return <span className={`${styles.badge} ${styles[tone]}`}>{children}</span>;
+  return <UiBadge variant="outline" className={cn('whitespace-nowrap', tones[tone])}>{children}</UiBadge>;
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className={styles.empty}>{children}</p>;
+  return <p className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">{children}</p>;
 }
 
 export function DataTable<T>({
@@ -51,34 +66,34 @@ export function DataTable<T>({
 }) {
   if (rows.length === 0) return <EmptyState>{empty}</EmptyState>;
   return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
+    <div className="overflow-hidden rounded-xl border">
+      <Table>
+        <TableHeader className="bg-muted/50">
+          <TableRow>
             {columns.map((c, ci) => (
-              <th key={ci} scope="col">{c.header}</th>
+              <TableHead key={ci} scope="col">{c.header}</TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((r, i) => (
-            <tr key={rowKey ? rowKey(r) : i}>
+            <TableRow key={rowKey ? rowKey(r) : i}>
               {columns.map((c, ci) => (
-                <td key={ci}>{c.cell(r)}</td>
+                <TableCell key={ci}>{c.cell(r)}</TableCell>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className={styles.field}>
-      <span className={styles.label}>{label}</span>
+    <Label className="mb-4 flex flex-col items-stretch gap-2 text-sm font-medium">
+      <span>{label}</span>
       {children}
-    </label>
+    </Label>
   );
 }

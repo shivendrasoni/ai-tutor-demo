@@ -1,7 +1,8 @@
 import ContentList from '../../_components/ContentList';
 import NotAllowed from '../../_components/NotAllowed';
+import PageHeading from '../../_components/PageHeading';
+import { Card } from '@/app/ui/components';
 import UploadForm from '../../_components/UploadForm';
-import styles from '../../staff.module.css';
 import { requireStaffPageActor } from '../../_lib/actor';
 import { listContent, listUploadTargets } from '@/modules/content';
 
@@ -15,12 +16,13 @@ export default async function TeacherMaterialsPage() {
   const [items, targets] = await Promise.all([listContent(actor, {}), listUploadTargets(actor)]);
 
   return (
-    <>
-      <h1 className={styles.title}>Materials</h1>
-      <p className={styles.lead}>Share PDF materials with the sections you teach.</p>
-      <UploadForm targets={targets} mode="teacher" />
-      <h2 className={styles.heading}>Your materials</h2>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeading title="Materials" lead="Share PDF materials with the sections you teach." />
+      <Card>
+        <UploadForm targets={targets} mode="teacher" />
+      </Card>
+      <h2 className="text-lg font-semibold">Your materials</h2>
       <ContentList initialItems={items} toggleBranchId={null} />
-    </>
+    </div>
   );
 }

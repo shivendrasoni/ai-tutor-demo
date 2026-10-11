@@ -1,6 +1,8 @@
 'use client';
+import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 export default function LogoutButton() {
   const router = useRouter();
@@ -13,5 +15,10 @@ export default function LogoutButton() {
       router.push('/login');
     }
   }
-  return <button type="button" onClick={logout} disabled={busy}>{busy ? 'Logging out…' : 'Log out'}</button>;
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={logout} disabled={busy}>
+      <LogOut className="size-4" />
+      {busy ? 'Logging out…' : 'Log out'}
+    </Button>
+  );
 }

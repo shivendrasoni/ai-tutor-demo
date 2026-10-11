@@ -6,7 +6,13 @@ import { apiFetch, genericMessage } from '../_lib/api';
 import { PasswordField, TextField, UsernameField } from '../_lib/fields';
 import PlanPicker, { SUCCESS_COPY, type PlanOption } from '../_lib/PlanPicker';
 import { codeCopy, submitError } from '../_lib/submit-error';
-import styles from '../public.module.css';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+
+const SELECT_CLASS =
+  'border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm';
 
 type Section = { id: string; grade: number; name: string };
 type Branch = { schoolName: string; branchName: string; sections: Section[] };
@@ -91,39 +97,53 @@ export default function JoinFlow() {
 
   if (step === 'done') {
     return (
-      <>
-        <h1 className={styles.title}>Join your school</h1>
-        <p role="status" className={styles.success}>{SUCCESS_COPY}</p>
-        <Link href="/login" className={styles.link}>Go to log in</Link>
-      </>
+      <Card>
+        <CardHeader>
+          <h1 className="text-2xl font-semibold leading-tight">Join your school</h1>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <p role="status" className="rounded-lg border border-success/30 bg-success/15 px-4 py-3 text-sm text-success">{SUCCESS_COPY}</p>
+          <Button asChild size="lg" className="w-full">
+            <Link href="/login">Go to log in</Link>
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
   if (step === 'code' || !branch) {
     return (
-      <>
-        <h1 className={styles.title}>Join your school</h1>
-        <p className={styles.sub}>Enter the signup code your school gave you.</p>
-        <form className={styles.form} onSubmit={lookup}>
-          {error ? <p role="alert" className={styles.error}>{error}</p> : null}
-          <TextField label="Signup code" value={code} onChange={setCode} autoComplete="off" required maxLength={64} />
-          <button type="submit" className={styles.button} disabled={busy}>{busy ? 'Checking…' : 'Continue'}</button>
-        </form>
-        <p><Link href="/login" className={styles.link}>Already have an account? Log in</Link></p>
-      </>
+      <Card>
+        <CardHeader>
+          <h1 className="text-2xl font-semibold leading-tight">Join your school</h1>
+          <CardDescription>Enter the signup code your school gave you.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5">
+          <form className="grid gap-5" onSubmit={lookup}>
+            {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            <TextField label="Signup code" value={code} onChange={setCode} autoComplete="off" required maxLength={64} />
+            <Button type="submit" size="lg" className="w-full" disabled={busy}>{busy ? 'Checking…' : 'Continue'}</Button>
+          </form>
+          <p className="text-center"><Link href="/login" className="text-sm font-medium text-primary underline-offset-4 hover:underline">Already have an account? Log in</Link></p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <>
-      <h1 className={styles.title}>Join your school</h1>
-      <p className={styles.sub}>{`Joining ${branch.schoolName} — ${branch.branchName}`}</p>
-      <form className={styles.form} onSubmit={submit}>
-        {error ? <p role="alert" className={styles.error}>{error}</p> : null}
-        <div className={styles.field}>
-          <label htmlFor="join-grade" className={styles.label}>Grade</label>
+    <Card>
+      <CardHeader>
+        <h1 className="text-2xl font-semibold leading-tight">Join your school</h1>
+        <CardDescription>{`Joining ${branch.schoolName} — ${branch.branchName}`}</CardDescription>
+      </CardHeader>
+      <CardContent>
+      <form className="grid gap-5" onSubmit={submit}>
+        {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+        <div className="grid min-w-0 gap-2">
+          <Label htmlFor="join-grade">Grade</Label>
           <select
             id="join-grade"
+            className={SELECT_CLASS}
             value={grade}
             required
             onChange={(e) => {
@@ -135,9 +155,9 @@ export default function JoinFlow() {
             {GRADES.map((g) => <option key={g} value={String(g)}>{g}</option>)}
           </select>
         </div>
-        <div className={styles.field}>
-          <label htmlFor="join-section" className={styles.label}>Section (optional)</label>
-          <select id="join-section" value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={gradeSections.length === 0}>
+        <div className="grid min-w-0 gap-2">
+          <Label htmlFor="join-section">Section (optional)</Label>
+          <select id="join-section" className={SELECT_CLASS} value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={gradeSections.length === 0}>
             <option value="">Not sure / none</option>
             {gradeSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -149,8 +169,9 @@ export default function JoinFlow() {
         <PlanPicker plans={plans} value={planId} onChange={setPlanId} />
         <UsernameField value={username} onChange={setUsername} suggestions={suggestions} onSuggestions={setSuggestions} />
         <PasswordField value={password} onChange={setPassword} />
-        <button type="submit" className={styles.button} disabled={busy || planId === ''}>{busy ? 'Creating…' : 'Create account'}</button>
+        <Button type="submit" size="lg" className="w-full" disabled={busy || planId === ''}>{busy ? 'Creating…' : 'Create account'}</Button>
       </form>
-    </>
+      </CardContent>
+    </Card>
   );
 }

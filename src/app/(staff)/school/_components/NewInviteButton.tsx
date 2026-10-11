@@ -1,5 +1,7 @@
 'use client';
+import { Link2 } from 'lucide-react';
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { InviteResult } from './AddStudentForm';
 
 /** Issues a fresh invite link for a student who has not signed up yet (the old link stops working). */
@@ -28,8 +30,10 @@ export default function NewInviteButton({ studentId, name }: { studentId: string
 
   return (
     <>
-      <button type="button" onClick={issue} disabled={busy}>New invite link</button>
-      {error ? <span role="alert"> {error}</span> : null}
+      <Button type="button" variant="outline" size="sm" onClick={issue} disabled={busy}>
+        <Link2 className="size-4" />New invite link
+      </Button>
+      {error ? <span role="alert" className="text-sm text-destructive"> {error}</span> : null}
       {url ? <InviteResult url={url} message={`New invite link for ${name} (the previous link no longer works):`} /> : null}
     </>
   );

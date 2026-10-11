@@ -5,7 +5,15 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, GENERIC_ERROR, NETWORK_ERROR } from '@/app/(public)/_lib/api';
 import { formatCitation, shouldRestoreDraft, streamMessage, type Citation } from '@/lib/sse-client';
-import styles from '../../learn.module.css';
+import { GraduationCap, SendHorizontal, ThumbsDown } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 type Msg = { id: string; role: 'user' | 'assistant'; content: string; citations: Citation[]; feedback: string | null };
 type Streaming = { messageId: string | null; text: string; notice: string | null; citations: Citation[] };
@@ -15,13 +23,33 @@ const BUDGET_COPY = "You've reached today's limit. Come back tomorrow!";
 function Citations({ items }: { items: Citation[] }) {
   if (items.length === 0) return null;
   return (
-    <ul className={styles.citations} aria-label="Sources">
+    <ul className="flex flex-wrap gap-1.5" aria-label="Sources">
       {items.map((c) => (
-        <li key={c.n} className={styles.cite}>[{c.n}] {formatCitation(c)}</li>
+        <li key={c.n}>
+          <Badge variant="secondary" className="font-normal">[{c.n}] {formatCitation(c)}</Badge>
+        </li>
       ))}
     </ul>
   );
 }
+
+function Notice({ children }: { children: string }) {
+  return (
+    <p className="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-sm">{children}</p>
+  );
+}
+
+function TutorAvatar() {
+  return (
+    <Avatar className="mt-0.5">
+      <AvatarFallback className="bg-primary/10 text-primary">
+        <GraduationCap className="size-4" aria-hidden />
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+const bubble = 'max-w-full rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]';
 
 export default function ChatView({ conversationId }: { conversationId: string }) {
   const router = useRouter();
@@ -117,49 +145,81 @@ export default function ChatView({ conversationId }: { conversationId: string })
   }
 
   return (
-    <>
-      <p className={styles.back}><Link href="/learn">‹ All chats</Link></p>
-      {messages === null && !error && <p className={styles.hint} role="status">Loading…</p>}
-      <div className={styles.thread} aria-live="polite">
-        {messages?.map((m) => (
-          <div key={m.id} className={m.role === 'user' ? styles.userRow : styles.botRow}>
-            {m.role === 'assistant' && notices[m.id] && <p className={styles.notice}>{notices[m.id]}</p>}
-            <div className={m.role === 'user' ? styles.userBubble : styles.botBubble}>{m.content}</div>
-            {m.role === 'assistant' && <Citations items={m.citations} />}
-            {m.role === 'assistant' && (
-              <button
-                type="button"
-                className={styles.thumb}
-                aria-label="Not helpful"
-                title="Not helpful"
-                disabled={rated[m.id] ?? m.feedback !== null}
-                onClick={() => thumbsDown(m.id)}
-              >
-                👎
-              </button>
-            )}
-          </div>
-        ))}
+    <div className="flex min-h-[calc(100svh-8rem)] flex-col">
+      <p className="mb-4">
+        <Link href="/learn" className="text-sm font-medium text-primary hover:underline">
+          <span>‹ All chats</span>
+        </Link>
+      </p>
+      {messages === null && !error && (
+        <div className="space-y-3" role="status">
+          <span className="sr-only">Loading…</span>
+          <Skeleton className="h-12 w-2/3" />
+          <Skeleton className="ml-auto h-10 w-1/2" />
+          <Skeleton className="h-16 w-3/4" />
+        </div>
+      )}
+      <div className="flex flex-1 flex-col gap-4 pb-4" aria-live="polite">
+        {messages?.map((m) =>
+          m.role === 'user' ? (
+            <div key={m.id} className="flex justify-end">
+              <div className={cn(bubble, 'max-w-[85%] rounded-br-md bg-primary text-primary-foreground')}>{m.content}</div>
+            </div>
+          ) : (
+            <div key={m.id} className="flex items-start gap-2.5">
+              <TutorAvatar />
+              <div className="flex min-w-0 max-w-[85%] flex-col items-start gap-2">
+                {notices[m.id] && <Notice>{notices[m.id]}</Notice>}
+                <div className={cn(bubble, 'rounded-tl-md bg-muted')}>{m.content}</div>
+                <Citations items={m.citations} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                  aria-label="Not helpful"
+                  title="Not helpful"
+                  disabled={rated[m.id] ?? m.feedback !== null}
+                  onClick={() => thumbsDown(m.id)}
+                >
+                  <ThumbsDown />
+                </Button>
+              </div>
+            </div>
+          ),
+        )}
         {pendingUser !== null && (
           <>
-            <div className={styles.userRow}><div className={styles.userBubble}>{pendingUser}</div></div>
+            <div className="flex justify-end">
+              <div className={cn(bubble, 'max-w-[85%] rounded-br-md bg-primary text-primary-foreground')}>{pendingUser}</div>
+            </div>
             {streaming && (
-              <div className={styles.botRow}>
-                {streaming.notice && <p className={styles.notice}>{streaming.notice}</p>}
-                <div className={styles.botBubble} aria-busy="true">{streaming.text || '…'}</div>
-                <Citations items={streaming.citations} />
+              <div className="flex items-start gap-2.5">
+                <TutorAvatar />
+                <div className="flex min-w-0 max-w-[85%] flex-col items-start gap-2">
+                  {streaming.notice && <Notice>{streaming.notice}</Notice>}
+                  <div className={cn(bubble, 'rounded-tl-md bg-muted')} aria-busy="true">{streaming.text || '…'}</div>
+                  <Citations items={streaming.citations} />
+                </div>
               </div>
             )}
           </>
         )}
         <div ref={endRef} />
       </div>
-      {error && <p className={styles.error} role="alert">{error}</p>}
-      <form className={styles.composer} onSubmit={send}>
-        <label className={styles.srOnly} htmlFor={inputId}>Your message</label>
-        <textarea
+      {error && (
+        <Alert variant="destructive" role="alert" className="mb-3">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <form
+        className="sticky bottom-0 -mx-4 flex items-end gap-2 border-t bg-background/90 px-4 py-3 backdrop-blur"
+        onSubmit={send}
+      >
+        <Label htmlFor={inputId} className="sr-only">Your message</Label>
+        <Textarea
           id={inputId}
-          className={styles.textarea}
+          className="max-h-40 min-h-11 resize-none bg-card"
           rows={2}
           maxLength={4000}
           value={draft}
@@ -171,8 +231,11 @@ export default function ChatView({ conversationId }: { conversationId: string })
             }
           }}
         />
-        <button type="submit" className={styles.primary} disabled={busy || !draft.trim()}>Send</button>
+        <Button type="submit" size="icon-lg" className="shrink-0 rounded-full" disabled={busy || !draft.trim()}>
+          <SendHorizontal />
+          <span className="sr-only">Send</span>
+        </Button>
       </form>
-    </>
+    </div>
   );
 }

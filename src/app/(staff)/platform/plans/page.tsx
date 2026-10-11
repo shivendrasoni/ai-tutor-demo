@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import CreatePlanForm from '../_components/CreatePlanForm';
 import PlansList from '../_components/PlansList';
@@ -18,11 +17,11 @@ export default async function PlansPage() {
     return pageError('Plans', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Plans</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Plans</h1>
       <PlatformNav />
       <PlansList plans={plans} />
       <CreatePlanForm />
-    </>
+    </div>
   );
 }

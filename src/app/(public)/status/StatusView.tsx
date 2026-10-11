@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import LogoutButton from '@/app/ui/LogoutButton';
 import { apiFetch } from '../_lib/api';
 import { resolveStatus, type Me, type StatusInfo } from './resolve';
-import styles from '../public.module.css';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 export default function StatusView() {
   const router = useRouter();
@@ -31,12 +33,21 @@ export default function StatusView() {
   }, [router]);
 
   return (
-    <>
-      <h1 className={styles.title}>Your account</h1>
-      {error ? <p role="alert" className={styles.error}>{error}</p> : null}
-      {text ? <p className={styles.notice}>{text}</p> : null}
-      {!text && !error ? <p className={styles.sub}>Loading…</p> : null}
-      <LogoutButton />
-    </>
+    <Card>
+      <CardHeader>
+        <h1 className="text-2xl font-semibold leading-tight">Your account</h1>
+      </CardHeader>
+      <CardContent className="grid justify-items-start gap-4">
+        {error ? <Alert variant="destructive" className="w-full"><AlertDescription>{error}</AlertDescription></Alert> : null}
+        {text ? (
+          <>
+            <Badge variant="secondary">Status</Badge>
+            <p className="w-full rounded-lg bg-muted px-4 py-3 text-sm">{text}</p>
+          </>
+        ) : null}
+        {!text && !error ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+        <LogoutButton />
+      </CardContent>
+    </Card>
   );
 }

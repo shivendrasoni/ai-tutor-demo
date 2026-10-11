@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import NotAllowed from '../_components/NotAllowed';
-import styles from '../staff.module.css';
+import PageHeading from '../_components/PageHeading';
+import { buttonVariants } from '@/components/ui/button';
 import { Card, EmptyState } from '@/app/ui/components';
 import { requirePageActor } from '@/lib/guard';
 import { DomainError } from '@/lib/errors';
@@ -34,20 +36,28 @@ export default async function SchoolPage({ searchParams }: { searchParams: Promi
     if (e instanceof DomainError && e.code === 'FORBIDDEN') return <NotAllowed />;
     if (e instanceof DomainError && e.code === 'VALIDATION') {
       return (
-        <>
-          <h1 className={styles.title}>School</h1>
+        <div className="space-y-4">
+          <PageHeading title="School" />
           <EmptyState>{e.message}</EmptyState>
-          <Link href="/school">Clear filters</Link>
-        </>
+          <Link href="/school" className={buttonVariants({ variant: 'outline' })}>Clear filters</Link>
+        </div>
       );
     }
     throw e;
   }
 
   return (
-    <>
-      <h1 className={styles.title}>School</h1>
-      <nav><Link href="/school/content">Content</Link></nav>
+    <div className="space-y-6">
+      <PageHeading
+        title="School"
+        actions={
+          <nav>
+            <Link href="/school/content" className={buttonVariants({ variant: 'outline' })}>
+              Content <ArrowRight className="size-4" />
+            </Link>
+          </nav>
+        }
+      />
       <EnrollmentCards totals={data.totals} />
       <EnrollmentTable rows={data.summary} />
       <Card title="Students">
@@ -57,6 +67,6 @@ export default async function SchoolPage({ searchParams }: { searchParams: Promi
       <AddStudentForm branches={data.branches} />
       <BranchCodes branches={data.branches} />
       <SetupSection {...setup} />
-    </>
+    </div>
   );
 }

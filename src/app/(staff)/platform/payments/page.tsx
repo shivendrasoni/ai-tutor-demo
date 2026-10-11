@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import PaymentsTable from '../_components/PaymentsTable';
 import PlatformNav from '../_components/PlatformNav';
@@ -17,10 +16,10 @@ export default async function PaymentsPage() {
     return pageError('Payments', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Payments</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Payments</h1>
       <PlatformNav />
       <PaymentsTable rows={rows} />
-    </>
+    </div>
   );
 }

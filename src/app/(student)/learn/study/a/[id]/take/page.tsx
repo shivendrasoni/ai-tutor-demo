@@ -8,7 +8,14 @@ import { startTake } from '../../../_lib/start';
 import { formatClock } from '../../../_lib/timing';
 import { useAutosave } from '../../../_lib/useAutosave';
 import { useCountdown } from '../../../_lib/useCountdown';
-import styles from '../../../study.module.css';
+import { ArrowLeft, ArrowRight, Clock } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import { choiceClass, choiceInputClass } from '../../../../../_components/styles';
 
 type Answers = Record<string, number | string>;
 
@@ -115,36 +122,74 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
 
   if (error && !art) {
     return (
-      <>
-        <p className={styles.error} role="alert">{error}</p>
-        <Link href={`/learn/study/a/${id}`}>Back</Link>
-      </>
+      <div className="space-y-4">
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <Link href={`/learn/study/a/${id}`} className="text-sm font-medium text-primary hover:underline">Back</Link>
+      </div>
     );
   }
-  if (!art) return <p className={styles.hint} role="status">Starting…</p>;
+  if (!art) {
+    return (
+      <div className="space-y-3" role="status">
+        <span className="sr-only">Starting…</span>
+        <Skeleton className="h-6 w-1/3" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
 
   const qs = allQuestions(art);
   const q = qs[index];
-  if (!q) return <p className={styles.error} role="alert">This test has no questions.</p>;
+  if (!q) {
+    return (
+      <Alert variant="destructive" role="alert">
+        <AlertDescription>This test has no questions.</AlertDescription>
+      </Alert>
+    );
+  }
   const cur = answers[q.id];
 
   return (
-    <>
-      <div className={styles.topbar}>
-        <span className={styles.hint}>Question {index + 1} of {qs.length}</span>
-        {left !== null && <span className={styles.timer} role="timer" aria-label="Time left">{formatClock(left)}</span>}
+    <div className="space-y-4">
+      <div className="sticky top-14 z-10 -mx-4 space-y-2 border-b bg-background/90 px-4 py-3 backdrop-blur">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-muted-foreground">Question {index + 1} of {qs.length}</span>
+          {left !== null && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 font-mono text-sm font-bold tabular-nums">
+              <Clock className="size-4" aria-hidden />
+              <span role="timer" aria-label="Time left">{formatClock(left)}</span>
+            </span>
+          )}
+        </div>
+        <div
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
+          aria-hidden
+        >
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((index + 1) / qs.length) * 100}%` }} />
+        </div>
       </div>
       {expired && (
-        <p className={styles.error} role="alert">
-          Time is up. Your answers could not be saved. <Link href={`/learn/study/a/${id}`}>Back to the test</Link>
-        </p>
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>
+            Time is up. Your answers could not be saved. <Link href={`/learn/study/a/${id}`} className="font-medium underline">Back to the test</Link>
+          </AlertDescription>
+        </Alert>
       )}
-      <ol className={styles.strip} aria-label="Questions">
+      <ol className="flex flex-wrap gap-1.5" aria-label="Questions">
         {qs.map((x, i) => (
           <li key={x.id}>
             <button
               type="button"
-              className={i === index ? styles.dotOn : answers[x.id] !== undefined ? styles.dotDone : styles.dot}
+              className={cn(
+                'size-9 rounded-full border text-xs font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                i === index
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : answers[x.id] !== undefined
+                    ? 'border-primary/40 bg-accent text-accent-foreground'
+                    : 'bg-card text-muted-foreground hover:bg-accent/50',
+              )}
               aria-label={`Question ${i + 1}`}
               aria-current={i === index ? 'step' : undefined}
               onClick={() => go(i)}
@@ -154,45 +199,62 @@ export default function TakePage({ params }: { params: Promise<{ id: string }> }
           </li>
         ))}
       </ol>
-      <section className={styles.question}>
-        <p className={styles.prompt}>{q.prompt}</p>
-        <p className={styles.hint}>{q.marks} mark{q.marks === 1 ? '' : 's'}</p>
-        {q.type === 'mcq' && q.options ? (
-          <fieldset className={styles.fieldset} disabled={expired}>
-            <legend className={styles.legend}>Choose one</legend>
-            {q.options.map((o, i) => (
-              <label key={i} className={styles.check}>
-                <input type="radio" name={`q-${q.id}`} checked={cur === i} onChange={() => setAnswer(q, i)} />
-                {o}
-              </label>
-            ))}
-          </fieldset>
-        ) : (
-          <textarea
-            className={styles.textarea}
-            aria-label="Your answer"
-            rows={q.type === 'short' ? 4 : 8}
-            maxLength={10000}
-            disabled={expired}
-            value={typeof cur === 'string' ? cur : ''}
-            onChange={(e) => setAnswer(q, e.target.value)}
-          />
-        )}
-      </section>
-      {error && <p className={styles.error} role="alert">{error}</p>}
-      <div className={styles.nav}>
-        <button type="button" className={styles.secondary} disabled={index === 0} onClick={() => go(index - 1)}>Previous</button>
-        <button type="button" className={styles.secondary} disabled={index === qs.length - 1} onClick={() => go(index + 1)}>Next</button>
+      <Card>
+        <CardContent>
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-base font-semibold leading-snug">{q.prompt}</p>
+              <p className="text-xs text-muted-foreground">{q.marks} mark{q.marks === 1 ? '' : 's'}</p>
+            </div>
+            {q.type === 'mcq' && q.options ? (
+              <fieldset className="flex flex-col gap-2" disabled={expired}>
+                <legend className="mb-2 text-sm font-medium text-muted-foreground">Choose one</legend>
+                {q.options.map((o, i) => (
+                  <label key={i} className={choiceClass}>
+                    <input type="radio" className={choiceInputClass} name={`q-${q.id}`} checked={cur === i} onChange={() => setAnswer(q, i)} />
+                    {o}
+                  </label>
+                ))}
+              </fieldset>
+            ) : (
+              <Textarea
+                aria-label="Your answer"
+                rows={q.type === 'short' ? 4 : 8}
+                maxLength={10000}
+                disabled={expired}
+                value={typeof cur === 'string' ? cur : ''}
+                onChange={(e) => setAnswer(q, e.target.value)}
+              />
+            )}
+          </section>
+        </CardContent>
+      </Card>
+      {error && (
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" disabled={index === 0} onClick={() => go(index - 1)}>
+          <ArrowLeft />
+          Previous
+        </Button>
+        <Button type="button" variant="outline" disabled={index === qs.length - 1} onClick={() => go(index + 1)}>
+          Next
+          <ArrowRight />
+        </Button>
       </div>
       {!confirming ? (
-        <button type="button" className={styles.primary} disabled={submitting || expired} onClick={() => setConfirming(true)}>Submit</button>
+        <Button type="button" size="lg" className="w-full" disabled={submitting || expired} onClick={() => setConfirming(true)}>Submit</Button>
       ) : (
-        <div className={styles.confirm} role="alertdialog" aria-label="Confirm submit">
-          <p>Submit your answers? You cannot change them afterwards.</p>
-          <button type="button" className={styles.primary} disabled={submitting} onClick={() => void submit(false)}>Yes, submit</button>
-          <button type="button" className={styles.secondary} onClick={() => setConfirming(false)}>Keep working</button>
+        <div className="space-y-3 rounded-xl border border-primary/40 bg-accent/50 p-4" role="alertdialog" aria-label="Confirm submit">
+          <p className="text-sm">Submit your answers? You cannot change them afterwards.</p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirming(false)}>Keep working</Button>
+            <Button type="button" disabled={submitting} onClick={() => void submit(false)}>Yes, submit</Button>
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

@@ -15,7 +15,7 @@ export default function FlagsTable({ rows }: { rows: FlaggedRow[] }) {
           { header: 'Student', cell: (r) => r.studentName },
           { header: 'Reason', cell: (r) => r.reason ?? '—' },
           { header: 'Excerpt', cell: (r) => r.excerpt },
-          { header: 'Review', cell: (r) => <Link href={`/platform/flags/${r.messageId}`}>Open</Link> },
+          { header: 'Review', cell: (r) => <Link href={`/platform/flags/${r.messageId}`} className="text-primary hover:underline">Open</Link> },
         ]}
       />
     </Card>

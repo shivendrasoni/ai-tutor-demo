@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import styles from '../../../staff.module.css';
+import { ArrowLeft } from 'lucide-react';
 import { requirePageActor } from '@/lib/guard';
 import ConversationView from '../../_components/ConversationView';
 import { pageError } from '../../_components/PageError';
@@ -20,12 +20,16 @@ export default async function FlagPage({ params }: { params: Promise<{ messageId
     return pageError('Flag', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Flagged conversation</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Flagged conversation</h1>
       <PlatformNav />
-      <p><Link href="/platform/flags">Back to flags</Link></p>
+      <p>
+        <Link href="/platform/flags" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+          <ArrowLeft className="size-4" aria-hidden="true" />Back to flags
+        </Link>
+      </p>
       <ConversationView messages={conv.messages} flaggedMessageId={conv.flaggedMessageId} />
       <ReviewButton messageId={conv.flaggedMessageId} reviewedAt={conv.reviewedAt} />
-    </>
+    </div>
   );
 }

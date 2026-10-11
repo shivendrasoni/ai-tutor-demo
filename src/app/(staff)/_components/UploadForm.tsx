@@ -3,7 +3,11 @@
 import { useId, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { UploadTargets } from '@/modules/content';
-import styles from '../staff.module.css';
+import { AlertCircle, CheckCircle2, UploadCloud } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 
 export type UploadMode = 'school_admin' | 'branch_admin' | 'teacher';
 
@@ -105,79 +109,94 @@ export default function UploadForm({ targets, mode }: Props) {
   const f = (name: string) => `${uid}-${name}`;
 
   return (
-    <form className={styles.form} onSubmit={submit} aria-label="Upload content">
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('title')}>Title</label>
-        <input id={f('title')} className={styles.input} type="text" maxLength={200} required value={title}
+    <form className="flex flex-col gap-4" onSubmit={submit} aria-label="Upload content">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('title')}>Title</Label>
+        <Input id={f('title')} type="text" maxLength={200} required value={title}
           onChange={(e) => setTitle(e.target.value)} />
       </div>
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('kind')}>Kind</label>
-        <select id={f('kind')} className={styles.input} value={kind} disabled={isTeacher}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('kind')}>Kind</Label>
+        <NativeSelect id={f('kind')} value={kind} disabled={isTeacher}
           onChange={(e) => setKind(e.target.value)}>
           <option value="book">Book</option>
           <option value="material">Material</option>
-        </select>
+        </NativeSelect>
       </div>
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('scope')}>Scope</label>
-        <select id={f('scope')} className={styles.input} value={scope} disabled={isTeacher}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('scope')}>Scope</Label>
+        <NativeSelect id={f('scope')} value={scope} disabled={isTeacher}
           onChange={(e) => setScope(e.target.value)}>
           {scopes.map((s) => (
             <option key={s} value={s}>
               {s === 'school' ? 'Whole school' : s === 'branch' ? 'One branch' : 'One section'}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
       {needsBranch && (
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={f('branch')}>Branch</label>
-          <select id={f('branch')} className={styles.input} required value={branchId}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={f('branch')}>Branch</Label>
+          <NativeSelect id={f('branch')} required value={branchId}
             onChange={(e) => { setBranchId(e.target.value); setSectionId(''); }}>
             <option value="" disabled>Select a branch</option>
             {targets.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+          </NativeSelect>
         </div>
       )}
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('grade')}>Grade</label>
-        <select id={f('grade')} className={styles.input} required value={grade}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('grade')}>Grade</Label>
+        <NativeSelect id={f('grade')} required value={grade}
           onChange={(e) => { setGrade(e.target.value); setSectionId(''); }}>
           <option value="" disabled>Select a grade</option>
           {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        </NativeSelect>
       </div>
       {needsSection && (
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={f('section')}>Section</label>
-          <select id={f('section')} className={styles.input} required value={sectionId}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={f('section')}>Section</Label>
+          <NativeSelect id={f('section')} required value={sectionId}
             onChange={(e) => { setSectionId(e.target.value); setSubjectId(''); }}>
             <option value="" disabled>Select a section</option>
             {sectionOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <p className={styles.hint}>Sections are filtered by the branch and grade above.</p>
+          </NativeSelect>
+          <p className="text-sm text-muted-foreground">Sections are filtered by the branch and grade above.</p>
         </div>
       )}
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('subject')}>Subject</label>
-        <select id={f('subject')} className={styles.input} required value={subjectId}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('subject')}>Subject</Label>
+        <NativeSelect id={f('subject')} required value={subjectId}
           onChange={(e) => setSubjectId(e.target.value)}>
           <option value="" disabled>Select a subject</option>
           {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        </NativeSelect>
       </div>
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={f('file')}>PDF file</label>
-        <input key={fileKey} id={f('file')} className={styles.input} type="file" required
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <p className={styles.hint}>PDF only, up to 100 MB.</p>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={f('file')}>PDF file</Label>
+        <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-input bg-muted/30 p-6 text-center transition-colors focus-within:border-ring hover:bg-muted/50">
+          <UploadCloud className="size-8 text-muted-foreground" aria-hidden="true" />
+          <Input key={fileKey} id={f('file')} className="max-w-sm cursor-pointer bg-background" type="file" required
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <p className="text-sm text-muted-foreground">PDF only, up to 100 MB.</p>
+        </div>
       </div>
-      <div role="alert">{error && <p className={styles.error}>{error}</p>}</div>
-      <div role="status">{done && <p className={styles.success}>{done}</p>}</div>
-      <button className={styles.button} type="submit" disabled={busy}>
+      <div role="alert">
+        {error && (
+          <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{error}
+          </p>
+        )}
+      </div>
+      <div role="status">
+        {done && (
+          <p className="flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{done}
+          </p>
+        )}
+      </div>
+      <Button type="submit" disabled={busy} className="self-start">
         {busy ? 'Uploading…' : 'Upload'}
-      </button>
+      </Button>
     </form>
   );
 }

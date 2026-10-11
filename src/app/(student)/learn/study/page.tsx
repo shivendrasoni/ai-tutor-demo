@@ -7,7 +7,16 @@ import {
   authRedirect, studyFetch, type ArtifactType, type Chapter, type Pattern, type Subject, type Summary,
 } from './_lib/api';
 import { nextPollDelay } from './_lib/timing';
-import styles from './study.module.css';
+import { Plus } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
+import { choiceClass, choiceInputClass, selectClass } from '../../_components/styles';
 
 const TABS: { type: ArtifactType; label: string }[] = [
   { type: 'practice_test', label: 'Practice tests' },
@@ -58,48 +67,79 @@ export default function StudyHub() {
 
   const label = TABS.find((t) => t.type === tab)!.label;
   return (
-    <>
-      <h1 className={styles.title}>Study</h1>
-      <div role="tablist" aria-label="Study tools" className={styles.tabs}>
+    <div className="space-y-5">
+      <h1 className="text-2xl font-bold">Study</h1>
+      <div role="tablist" aria-label="Study tools" className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:grid-cols-4">
         {TABS.map((t) => (
           <button
             key={t.type}
             role="tab"
             type="button"
             aria-selected={tab === t.type}
-            className={tab === t.type ? styles.tabOn : styles.tab}
+            className={cn(
+              'min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              tab === t.type && 'bg-card text-foreground shadow-sm',
+            )}
             onClick={() => setTab(t.type)}
           >
             {t.label}
           </button>
         ))}
       </div>
-      <section role="tabpanel" aria-label={label}>
+      <section role="tabpanel" aria-label={label} className="space-y-4">
         <CreateForm key={tab} type={tab} onCreated={() => void refresh()} onAuth={(to) => router.replace(to)} />
-        {error && <p className={styles.error} role="alert">{error}</p>}
-        {rows === null && !error && <p className={styles.hint} role="status">Loading…</p>}
-        {rows?.length === 0 && <p className={styles.hint}>Nothing here yet. Create one above.</p>}
+        {error && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {rows === null && !error && (
+          <div className="space-y-3" role="status">
+            <span className="sr-only">Loading…</span>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        )}
+        {rows?.length === 0 && (
+          <p className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+            Nothing here yet. Create one above.
+          </p>
+        )}
         {rows && rows.length > 0 && (
-          <ul className={styles.list}>
+          <ul className="flex flex-col gap-3">
             {rows.map((a) => (
-              <li key={a.id} className={styles.item}>
-                <div className={styles.itemMain}>
-                  {a.status === 'ready' ? (
-                    <Link className={styles.itemLink} href={`/learn/study/a/${a.id}`}>{a.title ?? label}</Link>
-                  ) : (
-                    <span>{a.title ?? label}</span>
-                  )}
-                  {a.status === 'ready' && a.bestScorePct !== null && (
-                    <span className={styles.hint}>Best {Math.round(a.bestScorePct)}% · {a.attemptCount} attempt{a.attemptCount === 1 ? '' : 's'}</span>
-                  )}
-                </div>
-                <span className={a.status === 'failed' ? styles.badgeBad : a.status === 'ready' ? styles.badgeOk : styles.badge}>{badge(a.status)}</span>
+              <li key={a.id}>
+                <Card className="py-0">
+                  <CardContent className="flex items-center justify-between gap-3 p-4">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      {a.status === 'ready' ? (
+                        <Link className="truncate font-semibold text-primary hover:underline" href={`/learn/study/a/${a.id}`}>{a.title ?? label}</Link>
+                      ) : (
+                        <span className="truncate font-medium">{a.title ?? label}</span>
+                      )}
+                      {a.status === 'ready' && a.bestScorePct !== null && (
+                        <span className="text-xs text-muted-foreground">Best {Math.round(a.bestScorePct)}% · {a.attemptCount} attempt{a.attemptCount === 1 ? '' : 's'}</span>
+                      )}
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'shrink-0 border-transparent',
+                        a.status === 'failed' ? 'bg-destructive/15 text-destructive'
+                        : a.status === 'ready' ? 'bg-success/15 text-success'
+                        : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      {badge(a.status)}
+                    </Badge>
+                  </CardContent>
+                </Card>
               </li>
             ))}
           </ul>
         )}
       </section>
-    </>
+    </div>
   );
 }
 
@@ -169,47 +209,62 @@ function CreateForm({ type, onCreated, onAuth }: { type: ArtifactType; onCreated
   }
 
   if (!open) {
-    return <button type="button" className={styles.primary} onClick={() => setOpen(true)}>Create</button>;
+    return (
+      <Button type="button" onClick={() => setOpen(true)}>
+        <Plus />
+        Create
+      </Button>
+    );
   }
   return (
-    <form className={styles.form} onSubmit={submit}>
-      <div className={styles.field}>
-        <label htmlFor={ids.subject} className={styles.legend}>Subject</label>
-        <select id={ids.subject} className={styles.select} value={subjectId} onChange={(e) => void pickSubject(e.target.value)}>
-          <option value="">Choose a subject</option>
-          {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </div>
-      {chapters.length > 0 && (
-        <fieldset className={styles.fieldset}>
-          <legend className={styles.legend}>Chapters (up to {MAX_CHAPTERS})</legend>
-          {chapters.map((c) => (
-            <label key={c.id} className={styles.check}>
-              <input type="checkbox" checked={picked.includes(c.id)} disabled={!picked.includes(c.id) && picked.length >= MAX_CHAPTERS} onChange={() => toggle(c.id)} />
-              {c.title}
-            </label>
-          ))}
-        </fieldset>
-      )}
-      {type === 'practice_test' && (
-        <div className={styles.field}>
-          <label htmlFor={ids.count} className={styles.legend}>Number of questions (5–30)</label>
-          <input id={ids.count} className={styles.input} type="number" min={5} max={30} value={count} onChange={(e) => setCount(Number(e.target.value))} />
-        </div>
-      )}
-      {type === 'mock_exam' && patterns.length > 0 && (
-        <div className={styles.field}>
-          <label htmlFor={ids.pattern} className={styles.legend}>Exam pattern</label>
-          <select id={ids.pattern} className={styles.select} value={patternKey} onChange={(e) => setPatternKey(e.target.value)}>
-            {patterns.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
-          </select>
-        </div>
-      )}
-      {error && <p className={styles.error} role="alert">{error}</p>}
-      <button type="submit" className={styles.primary} disabled={busy || !subjectId || picked.length === 0}>
-        {busy ? 'Creating…' : 'Generate'}
-      </button>
-      <button type="button" className={styles.secondary} disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
-    </form>
+    <Card>
+      <CardContent>
+        <form className="flex flex-col gap-5" onSubmit={submit}>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={ids.subject}>Subject</Label>
+            <select id={ids.subject} className={selectClass} value={subjectId} onChange={(e) => void pickSubject(e.target.value)}>
+              <option value="">Choose a subject</option>
+              {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          {chapters.length > 0 && (
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 text-sm font-semibold">Chapters (up to {MAX_CHAPTERS})</legend>
+              {chapters.map((c) => (
+                <label key={c.id} className={choiceClass}>
+                  <input type="checkbox" className={choiceInputClass} checked={picked.includes(c.id)} disabled={!picked.includes(c.id) && picked.length >= MAX_CHAPTERS} onChange={() => toggle(c.id)} />
+                  {c.title}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          {type === 'practice_test' && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={ids.count}>Number of questions (5–30)</Label>
+              <Input id={ids.count} type="number" min={5} max={30} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+            </div>
+          )}
+          {type === 'mock_exam' && patterns.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={ids.pattern}>Exam pattern</Label>
+              <select id={ids.pattern} className={selectClass} value={patternKey} onChange={(e) => setPatternKey(e.target.value)}>
+                {patterns.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {error && (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={busy || !subjectId || picked.length === 0}>
+              {busy ? 'Creating…' : 'Generate'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

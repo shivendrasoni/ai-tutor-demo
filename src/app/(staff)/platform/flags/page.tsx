@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import Link from 'next/link';
 import FlagsTable from '../_components/FlagsTable';
@@ -23,14 +22,20 @@ export default async function FlagsPage({ searchParams }: { searchParams: Promis
   }
   const current = status === 'reviewed' ? 'reviewed' : 'open';
   return (
-    <>
-      <h1 className={styles.title}>Flagged conversations</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Flagged conversations</h1>
       <PlatformNav />
-      <p>
-        {current === 'open' ? <strong>Open</strong> : <Link href="/platform/flags?status=open">Open</Link>}{' '}
-        {current === 'reviewed' ? <strong>Reviewed</strong> : <Link href="/platform/flags?status=reviewed">Reviewed</Link>}
-      </p>
+      <div className="inline-flex gap-1 rounded-lg bg-muted p-1">
+        {(['open', 'reviewed'] as const).map((s) => {
+          const label = s === 'open' ? 'Open' : 'Reviewed';
+          return s === current ? (
+            <strong key={s} aria-current="true" className="rounded-md bg-background px-3 py-1 text-sm font-semibold shadow-sm">{label}</strong>
+          ) : (
+            <Link key={s} href={`/platform/flags?status=${s}`} className="rounded-md px-3 py-1 text-sm text-muted-foreground hover:text-foreground">{label}</Link>
+          );
+        })}
+      </div>
       <FlagsTable rows={rows} />
-    </>
+    </div>
   );
 }

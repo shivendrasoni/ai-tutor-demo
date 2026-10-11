@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import CreateBranchForm from '../_components/CreateBranchForm';
 import CreateSchoolForm from '../_components/CreateSchoolForm';
@@ -19,12 +18,12 @@ export default async function SchoolsPage() {
     return pageError('Schools', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Schools</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Schools</h1>
       <PlatformNav />
       <SchoolsList schools={schools} />
       <CreateSchoolForm />
       <CreateBranchForm schools={schools.map((s) => ({ id: s.id, name: s.name }))} />
-    </>
+    </div>
   );
 }

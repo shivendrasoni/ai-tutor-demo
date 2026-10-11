@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, genericMessage } from '../_lib/api';
 import { TextField } from '../_lib/fields';
-import styles from '../public.module.css';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -35,15 +37,21 @@ export default function LoginForm() {
   }
 
   return (
-    <>
-      <h1 className={styles.title}>Log in</h1>
-      <form className={styles.form} onSubmit={submit}>
-        {error ? <p role="alert" className={styles.error}>{error}</p> : null}
+    <Card>
+      <CardHeader>
+        <h1 className="text-2xl font-semibold leading-tight">Log in</h1>
+      </CardHeader>
+      <CardContent>
+      <form className="grid gap-5" onSubmit={submit}>
+        {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
         <TextField label="Username" value={username} onChange={setUsername} autoComplete="username" required maxLength={200} />
         <TextField label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" required maxLength={1000} />
-        <button type="submit" className={styles.button} disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</Button>
       </form>
-      <p><Link href="/join" className={styles.link}>New student? Sign up with your school code</Link></p>
-    </>
+      </CardContent>
+      <CardFooter className="justify-center">
+        <Link href="/join" className="text-sm font-medium text-primary underline-offset-4 hover:underline">New student? Sign up with your school code</Link>
+      </CardFooter>
+    </Card>
   );
 }

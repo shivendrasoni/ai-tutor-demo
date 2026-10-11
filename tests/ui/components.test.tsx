@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { TableHead, TableRow } from '@/components/ui/table';
 import { Badge, Card, DataTable, EmptyState, Field, PageShell, Stat } from '@/app/ui/components';
 
 describe('components', () => {
@@ -18,7 +19,7 @@ describe('components', () => {
       { header: 'Name', cell: (r: R) => r.id },
       { header: 'Name', cell: (r: R) => r.id },
     ];
-    const keysOf = (el: ReactElement<any>, tag: string): (string | null)[] => {
+    const keysOf = (el: ReactElement<any>, tag: unknown): (string | null)[] => {
       const out: (string | null)[] = [];
       const walk = (n: any) => {
         if (!n || typeof n !== 'object') return;
@@ -31,10 +32,10 @@ describe('components', () => {
     };
     const rows = [{ id: 'a' }, { id: 'b' }];
     const byKey = DataTable({ columns: cols, rows, rowKey: (r: R) => r.id, empty: 'x' }) as ReactElement<any>;
-    expect(keysOf(byKey, 'tr')).toEqual([null, 'a', 'b']); // thead tr has no key
-    expect(keysOf(byKey, 'th')).toEqual(['0', '1']);
+    expect(keysOf(byKey, TableRow)).toEqual([null, 'a', 'b']); // thead tr has no key
+    expect(keysOf(byKey, TableHead)).toEqual(['0', '1']);
     const byIdx = DataTable({ columns: cols, rows, empty: 'x' }) as ReactElement<any>;
-    expect(keysOf(byIdx, 'tr').slice(1)).toEqual(['0', '1']);
+    expect(keysOf(byIdx, TableRow).slice(1)).toEqual(['0', '1']);
   });
 
   it('renders the simple components', () => {

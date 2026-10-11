@@ -21,13 +21,13 @@ export default function StudentsTable({ rows, canRemove }: { rows: StudentRow[];
           header: 'Actions',
           cell: (r: StudentRow) =>
             r.status === 'removed' ? '—' : (
-              <>
+              <div className="flex flex-wrap items-center gap-2">
                 {r.status === 'pending_payment' && r.username === null ? (
-                  <><NewInviteButton studentId={r.userId} name={r.name} />{' '}</>
+                  <NewInviteButton studentId={r.userId} name={r.name} />
                 ) : null}
-                {r.username !== null ? <><ResetPasswordButton studentId={r.userId} name={r.name} />{' '}</> : null}
+                {r.username !== null ? <ResetPasswordButton studentId={r.userId} name={r.name} /> : null}
                 <RemoveButton studentId={r.userId} name={r.name} />
-              </>
+              </div>
             ),
         }]
       : []),

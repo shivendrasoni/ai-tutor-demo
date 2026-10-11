@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import NotAllowed from '../_components/NotAllowed';
-import styles from '../staff.module.css';
+import PageHeading from '../_components/PageHeading';
+import { buttonVariants } from '@/components/ui/button';
 import { EmptyState } from '@/app/ui/components';
 import { DomainError } from '@/lib/errors';
 import { requirePageActor } from '@/lib/guard';
@@ -26,23 +28,31 @@ export default async function TeacherPage({ searchParams }: { searchParams: Prom
     if (e instanceof DomainError && e.code === 'FORBIDDEN') return <NotAllowed />;
     if (e instanceof DomainError && e.code === 'VALIDATION') {
       return (
-        <>
-          <h1 className={styles.title}>Teacher</h1>
+        <div className="space-y-4">
+          <PageHeading title="Teacher" />
           <EmptyState>{e.message}</EmptyState>
-          <Link href="/teacher">Back to your classes</Link>
-        </>
+          <Link href="/teacher" className={buttonVariants({ variant: 'outline' })}>Back to your classes</Link>
+        </div>
       );
     }
     throw e;
   }
 
   return (
-    <>
-      <h1 className={styles.title}>Teacher</h1>
-      <nav><Link href="/teacher/materials">Materials</Link></nav>
+    <div className="space-y-6">
+      <PageHeading
+        title="Teacher"
+        actions={
+          <nav>
+            <Link href="/teacher/materials" className={buttonVariants({ variant: 'outline' })}>
+              Materials <ArrowRight className="size-4" />
+            </Link>
+          </nav>
+        }
+      />
       <SectionSelector assignments={data.assignments} selected={data.selected} />
       {data.progress ? <ProgressGrid data={data.progress} /> : null}
       {data.selected ? <UsageTable rows={data.usage} /> : null}
-    </>
+    </div>
   );
 }

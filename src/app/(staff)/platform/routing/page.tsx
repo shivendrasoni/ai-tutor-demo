@@ -1,4 +1,3 @@
-import styles from '../../staff.module.css';
 import { requirePageActor } from '@/lib/guard';
 import DaysToggle from '../_components/DaysToggle';
 import RoutingCards from '../_components/RoutingCards';
@@ -22,11 +21,11 @@ export default async function RoutingPage({ searchParams }: { searchParams: Prom
     return pageError('Routing', e);
   }
   return (
-    <>
-      <h1 className={styles.title}>Routing</h1>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Routing</h1>
       <PlatformNav />
       <DaysToggle base="/platform/routing" days={days === '30' ? 30 : 7} />
       <RoutingCards stats={stats} />
-    </>
+    </div>
   );
 }

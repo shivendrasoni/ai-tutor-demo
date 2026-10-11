@@ -40,6 +40,21 @@ Mock mode switches itself off in `development` as soon as any real-provider sett
 
 See `.env.example` and `docs/superpowers/plans/AS-BUILT-subproject-3.md` for the full list.
 
+## Demo data
+
+`pnpm seed:demo` adds a fully populated "Greenfield Public School" to the dev database (additive; it skips if the school exists). It creates two branches, four sections, staff, seven students (five active, one lapsed, one awaiting payment), five ingested books and materials, graded practice tests, study notes, chat history, and one flagged message. Every account uses the password `demo-pass-123`.
+
+| Role | Username |
+| --- | --- |
+| Platform admin | `demo_platform` |
+| School admin | `demo_admin` |
+| Branch admin (Main Campus) | `demo_branch_admin` |
+| Teachers | `demo_teacher_math`, `demo_teacher_science` |
+| Main demo student (class 8-A) | `demo_aarav` |
+| Other students | `demo_meera`, `demo_rohan`, `demo_ananya` (class 9), `demo_kabir` (North Campus), `demo_dev` (lapsed), `demo_isha` (pending payment) |
+
+Books are embedded with the configured `EMBEDDER`, so run the seed with the same `.env` the app uses.
+
 ## Tests
 
 `pnpm vitest run` (unit and integration, needs the Docker Postgres), `pnpm e2e` (Playwright), `pnpm tsc --noEmit`. No test needs real keys.

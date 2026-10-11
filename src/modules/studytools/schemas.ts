@@ -9,8 +9,12 @@ export const QuestionSchema = z.object({
   id: nonEmpty,
   type: z.enum(['mcq', 'short', 'long', 'case']),
   prompt: nonEmpty,
-  /** Four options (mcq only). Modelled as a length-4 array so it converts to plain JSON Schema. */
-  options: z.array(nonEmpty).length(4).optional(),
+  /**
+   * Four options (mcq only). Modelled as a length-4 array so it converts to plain JSON Schema. Empty strings
+   * are tolerated here because models pad non-mcq questions with placeholders; validate.ts rejects them for mcq
+   * and resolvePassageRefs drops them for everything else.
+   */
+  options: z.array(z.string()).length(4).optional(),
   correctIndex: z.number().int().min(0).max(3).optional(),
   modelAnswer: nonEmpty.optional(),
   rubric: z.array(nonEmpty).min(2).max(5).optional(),

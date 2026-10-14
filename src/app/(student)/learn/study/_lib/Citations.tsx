@@ -6,8 +6,8 @@ export default function Citations({ citations }: { citations: Citation[] }) {
   return (
     <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Sources">
       {citations.map((c) => (
-        <li key={c.chunkId}>
-          <Badge variant="secondary" className="font-normal">{formatCitation(c)}</Badge>
+        <li key={c.chunkId} className="max-w-full">
+          <Badge variant="secondary" className="h-auto max-w-full whitespace-normal rounded-xl py-1 text-left font-normal">{formatCitation(c)}</Badge>
         </li>
       ))}
     </ul>

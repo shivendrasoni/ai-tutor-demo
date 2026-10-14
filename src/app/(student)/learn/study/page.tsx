@@ -7,22 +7,20 @@ import {
   authRedirect, studyFetch, type ArtifactType, type Chapter, type Pattern, type Subject, type Summary,
 } from './_lib/api';
 import { nextPollDelay } from './_lib/timing';
-import { Plus } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ClipboardCheck, FileText, Loader2, MoonStar, Plus, Timer, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { choiceClass, choiceInputClass, selectClass } from '../../_components/styles';
 
-const TABS: { type: ArtifactType; label: string }[] = [
-  { type: 'practice_test', label: 'Practice tests' },
-  { type: 'mock_exam', label: 'Mock exams' },
-  { type: 'study_notes', label: 'Notes' },
-  { type: 'last_night_notes', label: 'Last-night notes' },
+const TABS: { type: ArtifactType; label: string; blurb: string; Icon: LucideIcon; tone: string; on: string }[] = [
+  { type: 'practice_test', label: 'Practice tests', blurb: 'Quick questions to test yourself', Icon: ClipboardCheck, tone: 'bg-mint/30 text-emerald-600 dark:text-mint', on: 'border-mint' },
+  { type: 'mock_exam', label: 'Mock exams', blurb: 'Timed, like the real exam', Icon: Timer, tone: 'bg-coral/25 text-coral', on: 'border-coral' },
+  { type: 'study_notes', label: 'Notes', blurb: 'Clear summaries of your chapters', Icon: FileText, tone: 'bg-sky/25 text-sky', on: 'border-sky' },
+  { type: 'last_night_notes', label: 'Last-night notes', blurb: 'Just the key points to revise', Icon: MoonStar, tone: 'bg-grape/20 text-grape', on: 'border-grape' },
 ];
 const MAX_CHAPTERS = 6;
 
@@ -68,21 +66,29 @@ export default function StudyHub() {
   const label = TABS.find((t) => t.type === tab)!.label;
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold">Study</h1>
-      <div role="tablist" aria-label="Study tools" className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:grid-cols-4">
+      <div>
+        <h1 className="text-3xl font-extrabold">Study</h1>
+        <p className="text-muted-foreground">Pick a tool, choose your chapters, and let Tutu build it for you.</p>
+      </div>
+      <div role="tablist" aria-label="Study tools" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {TABS.map((t) => (
           <button
             key={t.type}
             role="tab"
             type="button"
             aria-selected={tab === t.type}
+            aria-label={t.label}
             className={cn(
-              'min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              tab === t.type && 'bg-card text-foreground shadow-sm',
+              'flex flex-col items-start gap-2 rounded-2xl border-2 bg-card p-3 text-left outline-none transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              tab === t.type ? cn('shadow-md', t.on) : 'border-transparent shadow-xs',
             )}
             onClick={() => setTab(t.type)}
           >
-            {t.label}
+            <span className={cn('grid size-10 place-items-center rounded-xl', t.tone)} aria-hidden>
+              <t.Icon className="size-5" />
+            </span>
+            <span aria-hidden className="text-sm font-extrabold leading-tight">{t.label}</span>
+            <span aria-hidden className="text-xs leading-snug text-muted-foreground">{t.blurb}</span>
           </button>
         ))}
       </div>
@@ -101,41 +107,52 @@ export default function StudyHub() {
           </div>
         )}
         {rows?.length === 0 && (
-          <p className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+          <p className="rounded-[2rem] border-2 border-dashed py-10 text-center font-bold text-muted-foreground">
             Nothing here yet. Create one above.
           </p>
         )}
         {rows && rows.length > 0 && (
           <ul className="flex flex-col gap-3">
-            {rows.map((a) => (
-              <li key={a.id}>
-                <Card className="py-0">
-                  <CardContent className="flex items-center justify-between gap-3 p-4">
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      {a.status === 'ready' ? (
-                        <Link className="truncate font-semibold text-primary hover:underline" href={`/learn/study/a/${a.id}`}>{a.title ?? label}</Link>
-                      ) : (
-                        <span className="truncate font-medium">{a.title ?? label}</span>
-                      )}
-                      {a.status === 'ready' && a.bestScorePct !== null && (
-                        <span className="text-xs text-muted-foreground">Best {Math.round(a.bestScorePct)}% · {a.attemptCount} attempt{a.attemptCount === 1 ? '' : 's'}</span>
-                      )}
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        'shrink-0 border-transparent',
-                        a.status === 'failed' ? 'bg-destructive/15 text-destructive'
-                        : a.status === 'ready' ? 'bg-success/15 text-success'
-                        : 'bg-muted text-muted-foreground',
-                      )}
-                    >
-                      {badge(a.status)}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              </li>
-            ))}
+            {rows.map((a) => {
+              const tone = TABS.find((t) => t.type === tab)!;
+              const body = (
+                <>
+                  <span className={cn('grid size-12 shrink-0 place-items-center rounded-2xl', tone.tone)} aria-hidden>
+                    <tone.Icon className="size-6" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="line-clamp-2 font-bold">{a.title ?? label}</span>
+                    {a.status === 'ready' && a.bestScorePct !== null && (
+                      <span className="text-sm text-muted-foreground">Best {Math.round(a.bestScorePct)}% · {a.attemptCount} attempt{a.attemptCount === 1 ? '' : 's'}</span>
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold',
+                      a.status === 'failed' ? 'bg-destructive/15 text-destructive'
+                      : a.status === 'ready' ? 'bg-success/15 text-success'
+                      : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {a.status === 'ready' ? <CheckCircle2 className="size-3.5" aria-hidden />
+                      : a.status === 'failed' ? <TriangleAlert className="size-3.5" aria-hidden />
+                      : <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                    {badge(a.status)}
+                  </span>
+                  {a.status === 'ready' && <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden />}
+                </>
+              );
+              const rowClass = 'flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-xs';
+              return (
+                <li key={a.id} className="anim-pop">
+                  {a.status === 'ready' ? (
+                    <Link className={cn(rowClass, 'no-underline transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:no-underline hover:shadow-md')} href={`/learn/study/a/${a.id}`}>{body}</Link>
+                  ) : (
+                    <div className={rowClass}>{body}</div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -210,26 +227,26 @@ function CreateForm({ type, onCreated, onAuth }: { type: ArtifactType; onCreated
 
   if (!open) {
     return (
-      <Button type="button" onClick={() => setOpen(true)}>
-        <Plus />
+      <Button type="button" size="lg" className="btn-chunky h-12 px-6 text-base" onClick={() => setOpen(true)}>
+        <Plus className="size-5" />
         Create
       </Button>
     );
   }
   return (
-    <Card>
-      <CardContent>
+    <div className="anim-pop rounded-[2rem] border bg-card p-5 shadow-sm sm:p-6">
+      <div>
         <form className="flex flex-col gap-5" onSubmit={submit}>
           <div className="flex flex-col gap-2">
             <Label htmlFor={ids.subject}>Subject</Label>
-            <select id={ids.subject} className={selectClass} value={subjectId} onChange={(e) => void pickSubject(e.target.value)}>
+            <select id={ids.subject} className={cn(selectClass, 'h-12 rounded-2xl text-base')} value={subjectId} onChange={(e) => void pickSubject(e.target.value)}>
               <option value="">Choose a subject</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           {chapters.length > 0 && (
             <fieldset className="flex flex-col gap-2">
-              <legend className="mb-2 text-sm font-semibold">Chapters (up to {MAX_CHAPTERS})</legend>
+              <legend className="mb-2 text-base font-extrabold">Chapters (up to {MAX_CHAPTERS})</legend>
               {chapters.map((c) => (
                 <label key={c.id} className={choiceClass}>
                   <input type="checkbox" className={choiceInputClass} checked={picked.includes(c.id)} disabled={!picked.includes(c.id) && picked.length >= MAX_CHAPTERS} onChange={() => toggle(c.id)} />
@@ -247,7 +264,7 @@ function CreateForm({ type, onCreated, onAuth }: { type: ArtifactType; onCreated
           {type === 'mock_exam' && patterns.length > 0 && (
             <div className="flex flex-col gap-2">
               <Label htmlFor={ids.pattern}>Exam pattern</Label>
-              <select id={ids.pattern} className={selectClass} value={patternKey} onChange={(e) => setPatternKey(e.target.value)}>
+              <select id={ids.pattern} className={cn(selectClass, 'h-12 rounded-2xl text-base')} value={patternKey} onChange={(e) => setPatternKey(e.target.value)}>
                 {patterns.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
               </select>
             </div>
@@ -259,12 +276,12 @@ function CreateForm({ type, onCreated, onAuth }: { type: ArtifactType; onCreated
           )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy || !subjectId || picked.length === 0}>
+            <Button type="submit" size="lg" className="btn-chunky h-12 px-8 text-base" disabled={busy || !subjectId || picked.length === 0}>
               {busy ? 'Creating…' : 'Generate'}
             </Button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

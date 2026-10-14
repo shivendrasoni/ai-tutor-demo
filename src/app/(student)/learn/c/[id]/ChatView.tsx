@@ -5,15 +5,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch, GENERIC_ERROR, NETWORK_ERROR } from '@/app/(public)/_lib/api';
 import { formatCitation, shouldRestoreDraft, streamMessage, type Citation } from '@/lib/sse-client';
-import { GraduationCap, SendHorizontal, ThumbsDown } from 'lucide-react';
+import Markdown from 'react-markdown';
+import { SendHorizontal, ThumbsDown } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import Tutu, { type TutuMood } from '@/components/Tutu';
 import { cn } from '@/lib/utils';
+import { useStudent } from '../../../_components/StudentContext';
+import { markdownClass } from '../../../_components/styles';
 
 type Msg = { id: string; role: 'user' | 'assistant'; content: string; citations: Citation[]; feedback: string | null };
 type Streaming = { messageId: string | null; text: string; notice: string | null; citations: Citation[] };
@@ -23,10 +26,10 @@ const BUDGET_COPY = "You've reached today's limit. Come back tomorrow!";
 function Citations({ items }: { items: Citation[] }) {
   if (items.length === 0) return null;
   return (
-    <ul className="flex flex-wrap gap-1.5" aria-label="Sources">
+    <ul className="flex max-w-full flex-wrap gap-1.5" aria-label="Sources">
       {items.map((c) => (
-        <li key={c.n}>
-          <Badge variant="secondary" className="font-normal">[{c.n}] {formatCitation(c)}</Badge>
+        <li key={c.n} className="max-w-full">
+          <Badge variant="secondary" className="h-auto max-w-full whitespace-normal rounded-xl py-1 text-left font-normal">[{c.n}] {formatCitation(c)}</Badge>
         </li>
       ))}
     </ul>
@@ -39,19 +42,36 @@ function Notice({ children }: { children: string }) {
   );
 }
 
-function TutorAvatar() {
+function TutorAvatar({ mood = 'happy' }: { mood?: TutuMood }) {
   return (
-    <Avatar className="mt-0.5">
-      <AvatarFallback className="bg-primary/10 text-primary">
-        <GraduationCap className="size-4" aria-hidden />
-      </AvatarFallback>
-    </Avatar>
+    <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-2xl bg-accent">
+      <Tutu mood={mood} className="size-9" />
+    </span>
   );
 }
 
-const bubble = 'max-w-full rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]';
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1.5 py-1" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="typing-dot size-2.5 rounded-full bg-primary/70" style={{ animationDelay: `${i * 160}ms` }} />
+      ))}
+    </span>
+  );
+}
+
+const STARTERS: Record<'junior' | 'middle' | 'senior', string[]> = {
+  junior: ['Can you tell me something fun to learn?', 'Help me with my homework', 'Why is the sky blue?'],
+  middle: ['Help me understand my homework', 'Explain this chapter simply', 'Quiz me on what I learned'],
+  senior: ['Help me with a problem I am stuck on', 'Summarise this chapter for revision', 'Quiz me on a topic'],
+};
+
+const bubble = 'max-w-full rounded-3xl px-4 py-3 text-[0.95rem] leading-relaxed [overflow-wrap:anywhere]';
+const userBubble = cn(bubble, 'max-w-[85%] whitespace-pre-wrap rounded-br-lg bg-primary text-primary-foreground shadow-sm');
+const tutorBubble = cn(bubble, 'rounded-tl-lg border bg-[var(--student-bubble)]', markdownClass, 'text-[0.95rem]');
 
 export default function ChatView({ conversationId }: { conversationId: string }) {
+  const { band } = useStudent();
   const router = useRouter();
   const inputId = useId();
   const [messages, setMessages] = useState<Msg[] | null>(null);
@@ -87,9 +107,12 @@ export default function ChatView({ conversationId }: { conversationId: string })
     endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [messages, pendingUser, streaming?.text]);
 
-  async function send(e: FormEvent) {
+  function send(e: FormEvent) {
     e.preventDefault();
-    const text = draft.trim();
+    void sendText(draft.trim());
+  }
+
+  async function sendText(text: string) {
     if (!text || busy) return;
     setDraft('');
     setError('');
@@ -145,9 +168,9 @@ export default function ChatView({ conversationId }: { conversationId: string })
   }
 
   return (
-    <div className="flex min-h-[calc(100svh-8rem)] flex-col">
+    <div className="flex min-h-[calc(100svh-10rem)] flex-col">
       <p className="mb-4">
-        <Link href="/learn" className="text-sm font-medium text-primary hover:underline">
+        <Link href="/learn" className="inline-flex items-center rounded-full bg-card px-3 py-1.5 text-sm font-bold text-primary no-underline shadow-xs ring-1 ring-border hover:no-underline">
           <span>‹ All chats</span>
         </Link>
       </p>
@@ -159,18 +182,40 @@ export default function ChatView({ conversationId }: { conversationId: string })
           <Skeleton className="h-16 w-3/4" />
         </div>
       )}
+      {messages !== null && messages.length === 0 && !busy && (
+        <div className="anim-pop flex flex-col items-center gap-4 py-8 text-center">
+          <Tutu mood="happy" className="anim-float size-32" />
+          <div>
+            <p className="text-xl font-extrabold">What shall we learn?</p>
+            <p className="text-muted-foreground">Type a question below, or tap one of these to begin.</p>
+          </div>
+          <ul className="flex flex-wrap justify-center gap-2" aria-label="Ideas">
+            {STARTERS[band].map((t) => (
+              <li key={t}>
+                <button
+                  type="button"
+                  className="rounded-full border-2 border-primary/30 bg-card px-4 py-2 text-sm font-bold text-primary transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  onClick={() => void sendText(t)}
+                >
+                  {t}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex flex-1 flex-col gap-4 pb-4" aria-live="polite">
         {messages?.map((m) =>
           m.role === 'user' ? (
-            <div key={m.id} className="flex justify-end">
-              <div className={cn(bubble, 'max-w-[85%] rounded-br-md bg-primary text-primary-foreground')}>{m.content}</div>
+            <div key={m.id} className="anim-pop flex justify-end">
+              <div className={userBubble}>{m.content}</div>
             </div>
           ) : (
-            <div key={m.id} className="flex items-start gap-2.5">
+            <div key={m.id} className="anim-pop flex items-start gap-2.5">
               <TutorAvatar />
               <div className="flex min-w-0 max-w-[85%] flex-col items-start gap-2">
                 {notices[m.id] && <Notice>{notices[m.id]}</Notice>}
-                <div className={cn(bubble, 'rounded-tl-md bg-muted')}>{m.content}</div>
+                <div className={tutorBubble}><Markdown>{m.content}</Markdown></div>
                 <Citations items={m.citations} />
                 <Button
                   type="button"
@@ -190,15 +235,15 @@ export default function ChatView({ conversationId }: { conversationId: string })
         )}
         {pendingUser !== null && (
           <>
-            <div className="flex justify-end">
-              <div className={cn(bubble, 'max-w-[85%] rounded-br-md bg-primary text-primary-foreground')}>{pendingUser}</div>
+            <div className="anim-pop flex justify-end">
+              <div className={userBubble}>{pendingUser}</div>
             </div>
             {streaming && (
               <div className="flex items-start gap-2.5">
-                <TutorAvatar />
+                <TutorAvatar mood="thinking" />
                 <div className="flex min-w-0 max-w-[85%] flex-col items-start gap-2">
                   {streaming.notice && <Notice>{streaming.notice}</Notice>}
-                  <div className={cn(bubble, 'rounded-tl-md bg-muted')} aria-busy="true">{streaming.text || '…'}</div>
+                  <div className={tutorBubble} aria-busy="true">{streaming.text ? <Markdown>{streaming.text}</Markdown> : <TypingDots />}</div>
                   <Citations items={streaming.citations} />
                 </div>
               </div>
@@ -213,13 +258,14 @@ export default function ChatView({ conversationId }: { conversationId: string })
         </Alert>
       )}
       <form
-        className="sticky bottom-0 -mx-4 flex items-end gap-2 border-t bg-background/90 px-4 py-3 backdrop-blur"
+        className="sticky bottom-[5.75rem] z-20 -mx-4 flex items-end gap-2 bg-gradient-to-t from-background via-background/95 to-transparent px-4 pb-2 pt-4 sm:bottom-0"
         onSubmit={send}
       >
         <Label htmlFor={inputId} className="sr-only">Your message</Label>
         <Textarea
           id={inputId}
-          className="max-h-40 min-h-11 resize-none bg-card"
+          className="max-h-40 min-h-12 resize-none rounded-3xl border-2 bg-card px-4 py-3 text-base shadow-sm"
+          placeholder="Type your question…"
           rows={2}
           maxLength={4000}
           value={draft}
@@ -231,7 +277,7 @@ export default function ChatView({ conversationId }: { conversationId: string })
             }
           }}
         />
-        <Button type="submit" size="icon-lg" className="shrink-0 rounded-full" disabled={busy || !draft.trim()}>
+        <Button type="submit" size="icon-lg" className="btn-chunky size-12 shrink-0 rounded-full" disabled={busy || !draft.trim()}>
           <SendHorizontal />
           <span className="sr-only">Send</span>
         </Button>

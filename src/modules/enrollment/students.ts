@@ -140,6 +140,20 @@ export async function studentStatus(
   return { status, planName: row?.planName ?? null, periodEnd: row?.periodEnd ?? null };
 }
 
+/** The signed-in student's display name and class, used to personalise the student area. */
+export async function studentIdentity(actor: Actor): Promise<{ name: string; grade: number }> {
+  if (!actor.roles.includes('student') || !actor.schoolId) throw new DomainError('FORBIDDEN');
+  const [row] = await runAs(actor, (tx) =>
+    tx
+      .select({ name: users.name, grade: studentProfiles.grade })
+      .from(studentProfiles)
+      .innerJoin(users, eq(users.id, studentProfiles.userId))
+      .where(eq(studentProfiles.userId, actor.userId)),
+  );
+  if (!row) throw new DomainError('NOT_FOUND', 'Student not found');
+  return row;
+}
+
 /** Admin-initiated password reset; revokes the student's sessions. */
 export async function resetStudentPassword(actor: Actor, studentUserId: string, newPassword: string): Promise<void> {
   const notFound = () => new DomainError('NOT_FOUND', 'Student not found');

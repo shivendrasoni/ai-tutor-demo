@@ -15,7 +15,7 @@ import SchoolsList from '@/app/(staff)/platform/_components/SchoolsList';
 import { insertMessage, seedAnalyticsWorld, type World } from '../helpers/analytics-seed';
 import { resetDb } from '../helpers/db';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }), usePathname: () => '/platform' }));
 
 let w: World;
 beforeEach(async () => {

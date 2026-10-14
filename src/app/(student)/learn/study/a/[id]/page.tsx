@@ -10,7 +10,7 @@ import { nextPollDelay } from '../../_lib/timing';
 import { ArrowLeft, ChevronRight, Play } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import Tutu from '@/components/Tutu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { markdownClass } from '../../../../_components/styles';
 
@@ -49,7 +49,7 @@ export default function ArtifactPage({ params }: { params: Promise<{ id: string 
   return (
     <div className="space-y-5">
       <p>
-        <Link href="/learn/study" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+        <Link href="/learn/study" className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1.5 text-sm font-bold text-primary no-underline shadow-xs ring-1 ring-border hover:no-underline">
           <ArrowLeft className="size-4" aria-hidden />
           <span>Study</span>
         </Link>
@@ -68,8 +68,14 @@ export default function ArtifactPage({ params }: { params: Promise<{ id: string 
       )}
       {art && (
         <>
-          <h1 className="text-2xl font-bold">{art.title ?? 'Study item'}</h1>
-          {art.status === 'generating' && <p className="text-sm text-muted-foreground" role="status">Generating…</p>}
+          <h1 className="text-3xl font-extrabold">{art.title ?? 'Study item'}</h1>
+          {art.status === 'generating' && (
+            <div className="flex flex-col items-center gap-2 rounded-[2rem] border bg-card p-8 text-center" role="status">
+              <Tutu mood="thinking" className="anim-float size-28" />
+              <p className="font-extrabold">Generating…</p>
+              <p className="text-sm text-muted-foreground">Tutu is putting this together for you.</p>
+            </div>
+          )}
           {art.status === 'failed' && (
             <Alert variant="destructive" role="alert">
               <AlertDescription>Failed — try again from the Study page.</AlertDescription>
@@ -78,44 +84,42 @@ export default function ArtifactPage({ params }: { params: Promise<{ id: string 
           {art.status === 'ready' && art.notes && (
             <div className="flex flex-col gap-4">
               {art.notes.map((n, i) => (
-                <Card key={i}>
-                  <CardContent>
-                    <section>
-                      <h2 className="mb-2 text-lg font-semibold">{n.heading}</h2>
-                      <div className={markdownClass}>
-                        <Markdown>{n.bodyMarkdown}</Markdown>
-                      </div>
-                      <Citations citations={n.citations} />
-                    </section>
-                  </CardContent>
-                </Card>
+                <section key={i} className="anim-pop rounded-[2rem] border border-l-8 border-l-primary bg-card p-5 shadow-sm sm:p-6">
+                  <h2 className="mb-2 text-xl font-extrabold">{n.heading}</h2>
+                  <div className={markdownClass}>
+                    <Markdown>{n.bodyMarkdown}</Markdown>
+                  </div>
+                  <Citations citations={n.citations} />
+                </section>
               ))}
             </div>
           )}
           {art.status === 'ready' && isTest && (
             <>
-              <Card>
-                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
+              <div className="anim-pop flex flex-col items-center gap-4 rounded-[2rem] border bg-card p-6 text-center shadow-sm sm:flex-row sm:text-left">
+                <Tutu mood="cheer" className="anim-float size-24 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xl font-extrabold">Ready when you are!</p>
+                  <p className="font-bold text-muted-foreground">
                     {allQuestions(art).length} questions
                     {art.durationMinutes ? ` · ${art.durationMinutes} minutes` : ''}
                   </p>
-                  <Button asChild size="lg">
-                    <Link href={`/learn/study/a/${art.id}/take`}>
-                      <Play />
-                      Start test
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
+                </div>
+                <Button asChild size="lg" className="btn-chunky h-12 px-8 text-base">
+                  <Link href={`/learn/study/a/${art.id}/take`}>
+                    <Play />
+                    Start test
+                  </Link>
+                </Button>
+              </div>
               {art.attempts.length > 0 && (
                 <>
-                  <h2 className="text-lg font-semibold">Your attempts</h2>
+                  <h2 className="text-lg font-extrabold">Your attempts</h2>
                   <ul className="flex flex-col gap-2">
                     {art.attempts.map((a) => (
                       <li key={a.id}>
                         <Link
-                          className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4 text-sm font-medium shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/50"
+                          className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4 font-bold no-underline shadow-xs transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:no-underline hover:shadow-md"
                           href={`/learn/study/attempt/${a.id}`}
                         >
                           <span>

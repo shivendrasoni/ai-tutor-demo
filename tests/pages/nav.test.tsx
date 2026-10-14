@@ -5,7 +5,7 @@ import { staffLinks } from '@/app/(staff)/_lib/links';
 import StaffHeader from '@/app/(staff)/_components/StaffHeader';
 import StudentNav from '@/app/(student)/_components/StudentNav';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {} }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {} }), usePathname: () => '/learn' }));
 
 const actor = (o: Partial<Actor>): Actor => ({ userId: 'u', isPlatformAdmin: false, schoolId: 's', branchId: null, roles: [], ...o });
 

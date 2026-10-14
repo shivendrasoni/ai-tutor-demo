@@ -4,7 +4,7 @@ import { closeDb, withPlatform } from '@/db/client';
 import { payments, sessions, studentProfiles, subscriptions, users } from '@/db/schema';
 import { recordPayment } from '@/modules/enrollment/payments';
 import { addInterval } from '@/modules/enrollment/periods';
-import { listStudents, removeStudent, resetStudentPassword, studentStatus } from '@/modules/enrollment/students';
+import { listStudents, removeStudent, resetStudentPassword, studentIdentity, studentStatus } from '@/modules/enrollment/students';
 import { login, resolveActor } from '@/modules/tenancy';
 import { createSession } from '@/modules/tenancy/auth/sessions';
 import { resetDb, SEED_PASSWORD, seedTwoSchools, type Seed } from '../helpers/db';
@@ -190,6 +190,15 @@ describe('studentStatus', () => {
     expect(await codeOf(studentStatus(seed.a.teacher))).toBe('FORBIDDEN');
     expect(await codeOf(studentStatus(seed.a.schoolAdmin))).toBe('FORBIDDEN');
     expect(await codeOf(studentStatus(seed.platform))).toBe('FORBIDDEN');
+  });
+});
+
+describe('studentIdentity', () => {
+  it('returns the student name and grade; non-students are FORBIDDEN', async () => {
+    const id = await studentIdentity(seed.a.student);
+    expect(id.name).toBe('student A');
+    expect(Number.isInteger(id.grade)).toBe(true);
+    expect(await codeOf(studentIdentity(seed.a.teacher))).toBe('FORBIDDEN');
   });
 });
 

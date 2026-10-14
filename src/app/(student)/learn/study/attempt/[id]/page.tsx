@@ -9,13 +9,16 @@ import { POLL_MS, takeLinkLabel } from '../../_lib/timing';
 import { ArrowLeft, CheckCircle2, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Stat } from '@/app/ui/components';
+import Tutu from '@/components/Tutu';
+import { resultMessage } from '@/lib/student-band';
 import { cn } from '@/lib/utils';
+import { useStudent } from '../../../../_components/StudentContext';
+import { Confetti, ScoreRing } from '../../_lib/Celebrate';
 
 export default function AttemptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { band } = useStudent();
   const router = useRouter();
   const [at, setAt] = useState<Attempt | null>(null);
   const [error, setError] = useState('');
@@ -63,42 +66,67 @@ export default function AttemptPage({ params }: { params: Promise<{ id: string }
   return (
     <div className="space-y-5">
       <p>
-        <Link href={`/learn/study/a/${at.artifactId}`} className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+        <Link href={`/learn/study/a/${at.artifactId}`} className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1.5 text-sm font-bold text-primary no-underline shadow-xs ring-1 ring-border hover:no-underline">
           <ArrowLeft className="size-4" aria-hidden />
           <span>{at.artifact.title ?? 'Back'}</span>
         </Link>
       </p>
       {at.status === 'in_progress' && (
-        <Card>
-          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">This attempt is still in progress.</p>
-            <Button asChild>
-              <Link href={`/learn/study/a/${at.artifactId}/take`}>{takeLinkLabel(at.status, at.deadline, Date.now())}</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-      {at.status === 'grading' && (
-        <div className="space-y-3" role="status">
-          <p className="text-sm text-muted-foreground">Grading…</p>
-          <Skeleton className="h-20 w-full" />
+        <div className="flex flex-col gap-4 rounded-[2rem] border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-bold text-muted-foreground">This attempt is still in progress.</p>
+          <Button asChild size="lg" className="btn-chunky">
+            <Link href={`/learn/study/a/${at.artifactId}/take`}>{takeLinkLabel(at.status, at.deadline, Date.now())}</Link>
+          </Button>
         </div>
       )}
-      {at.status === 'graded' && (
-        <>
-          <h1 className="text-2xl font-bold">Graded</h1>
-          <div className="[&_div.text-2xl]:text-4xl [&_div.text-2xl]:text-primary">
-            <Stat label="Score" value={`${at.score} / ${at.maxScore}`} />
-          </div>
-          {at.byChapter && (
-            <ul className="flex flex-col gap-2" aria-label="By chapter">
-              {Object.entries(at.byChapter).map(([ch, v]) => (
-                <li key={ch} className="rounded-xl border bg-card px-4 py-3 text-sm">{titles[ch] ?? 'Chapter'}: {v.scored} / {v.max}</li>
-              ))}
-            </ul>
-          )}
-        </>
+      {at.status === 'grading' && (
+        <div className="flex flex-col items-center gap-3 rounded-[2rem] border bg-card p-8 text-center" role="status">
+          <Tutu mood="thinking" className="anim-float size-28" />
+          <p className="font-extrabold">Grading…</p>
+          <p className="text-sm text-muted-foreground">Tutu is checking your answers. This only takes a moment.</p>
+        </div>
       )}
+      {at.status === 'graded' && (() => {
+        const pct = at.maxScore ? ((at.score ?? 0) / at.maxScore) * 100 : 0;
+        return (
+          <>
+            <section className="anim-pop relative overflow-clip rounded-[2rem] border bg-card p-6 text-center shadow-sm">
+              {pct >= 80 && <Confetti />}
+              <h1 className="text-3xl font-extrabold">Graded</h1>
+              <div className="relative mt-3 flex flex-col items-center gap-2">
+                <ScoreRing pct={pct} />
+                <Tutu mood={pct >= 80 ? 'cheer' : 'happy'} className="absolute -right-1 bottom-0 size-20 sm:right-16" />
+              </div>
+              <div className="mt-2">
+                <div className="text-4xl font-extrabold text-primary">{at.score} / {at.maxScore}</div>
+                <div className="text-sm font-bold text-muted-foreground">Score</div>
+              </div>
+              <p className="mx-auto mt-3 max-w-sm font-bold">{resultMessage(band, pct)}</p>
+              <Button asChild size="lg" className="btn-chunky mt-4 h-12 px-8 text-base">
+                <Link href={`/learn/study/a/${at.artifactId}`}>Try again or pick another</Link>
+              </Button>
+            </section>
+            {at.byChapter && (
+              <section className="space-y-2">
+                <h2 className="text-lg font-extrabold">How you did by chapter</h2>
+                <ul className="flex flex-col gap-2" aria-label="By chapter">
+                  {Object.entries(at.byChapter).map(([ch, v]) => {
+                    const f = v.max ? v.scored / v.max : 0;
+                    return (
+                      <li key={ch} className="space-y-2 rounded-2xl border bg-card px-4 py-3 text-sm">
+                        <div className="font-bold">{titles[ch] ?? 'Chapter'}: {v.scored} / {v.max}</div>
+                        <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+                          <div className={cn('h-full rounded-full', f >= 0.8 ? 'bg-success' : f >= 0.5 ? 'bg-primary' : 'bg-coral')} style={{ width: `${f * 100}%` }} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+          </>
+        );
+      })()}
       {at.submittedAt && at.questions && (
         <ol className="flex flex-col gap-4">
           {at.questions.map((q, i) => {
@@ -109,12 +137,12 @@ export default function AttemptPage({ params }: { params: Promise<{ id: string }
               <li
                 key={q.id}
                 className={cn(
-                  'space-y-2 rounded-xl border border-l-4 bg-card p-4 text-sm shadow-xs',
+                  'space-y-2 rounded-2xl border border-l-8 bg-card p-4 text-base shadow-xs',
                   full === true && 'border-l-success',
                   full === false && 'border-l-destructive',
                 )}
               >
-                <p className="font-semibold">{i + 1}. {q.prompt}</p>
+                <p className="font-extrabold">{i + 1}. {q.prompt}</p>
                 {res && <p className="text-xs text-muted-foreground">Score: {res.score} / {res.maxScore}</p>}
                 <p className="text-muted-foreground">
                   Your answer:{' '}

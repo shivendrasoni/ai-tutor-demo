@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "test:demo": "vitest run -c vitest.demo.config.ts",
     "test:isolation": "vitest run tests/isolation",
     "admin": "tsx scripts/admin.ts",
     "job:lapse": "tsx scripts/lapse.ts",

@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { postJson } from './api';
 
-export default function ReviewButton({ messageId, reviewedAt }: { messageId: string; reviewedAt: Date | null }) {
+export default function ReviewButton({ messageId, reviewedAt }: { messageId: string; reviewedAt: string | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -22,7 +22,7 @@ export default function ReviewButton({ messageId, reviewedAt }: { messageId: str
       router.refresh();
     }
   }
-  if (reviewedAt) return <p role="status" className="flex items-center gap-2 text-sm text-success"><CheckCircle2 className="size-4" aria-hidden="true" />Reviewed on {reviewedAt.toISOString().slice(0, 10)}</p>;
+  if (reviewedAt) return <p role="status" className="flex items-center gap-2 text-sm text-success"><CheckCircle2 className="size-4" aria-hidden="true" />Reviewed on {reviewedAt.slice(0, 10)}</p>;
   if (done) return <p role="status" className="flex items-center gap-2 text-sm text-success"><CheckCircle2 className="size-4" aria-hidden="true" />Marked as reviewed</p>;
   return (
     <>

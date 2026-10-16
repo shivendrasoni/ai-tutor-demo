@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Card, DataTable } from '@/app/ui/components';
-import { formatDate } from '@/app/ui/format';
-import type { FlaggedRow } from '@/modules/analytics';
+import type { FlaggedRow } from '@/demo/areas/platform/types';
 
 export default function FlagsTable({ rows }: { rows: FlaggedRow[] }) {
   return (
@@ -10,7 +9,7 @@ export default function FlagsTable({ rows }: { rows: FlaggedRow[] }) {
         rows={rows}
         empty="No flagged conversations"
         columns={[
-          { header: 'Date', cell: (r) => formatDate(r.createdAt) },
+          { header: 'Date', cell: (r) => r.createdAt.slice(0, 10) },
           { header: 'School', cell: (r) => r.schoolName },
           { header: 'Student', cell: (r) => r.studentName },
           { header: 'Reason', cell: (r) => r.reason ?? '—' },

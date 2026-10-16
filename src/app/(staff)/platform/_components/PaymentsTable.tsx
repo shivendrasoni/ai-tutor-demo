@@ -1,6 +1,6 @@
 import { Badge, Card, DataTable } from '@/app/ui/components';
 import { formatMoney } from '@/app/ui/format';
-import type { PendingRow } from '@/modules/enrollment';
+import type { PendingRow } from '@/demo/areas/platform/types';
 import RecordPaymentForm from './RecordPaymentForm';
 
 export default function PaymentsTable({ rows }: { rows: PendingRow[] }) {

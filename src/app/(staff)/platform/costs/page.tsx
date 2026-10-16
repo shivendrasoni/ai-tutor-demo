@@ -1,22 +1,19 @@
-import { requirePageActor } from '@/lib/guard';
+'use client';
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import CostTables from '../_components/CostTables';
 import DaysToggle from '../_components/DaysToggle';
 import PlatformNav from '../_components/PlatformNav';
 import { pageError } from '../_components/PageError';
-import { loadCosts } from '../loaders';
+import { usePlatform } from '../_components/usePlatform';
+import { parseDays, selectCosts } from '@/demo/areas/platform/selectors';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Costs · AI Tutor for Schools' };
-
-type Params = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-
-export default async function CostsPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const actor = await requirePageActor(['platform']);
-  const days = one((await searchParams).days);
-  let data: Awaited<ReturnType<typeof loadCosts>>;
+function Costs() {
+  const s = usePlatform();
+  const raw = useSearchParams().get('days');
+  let days: 7 | 30;
   try {
-    data = await loadCosts(actor, { days });
+    days = parseDays(raw);
   } catch (e) {
     return pageError('Costs', e);
   }
@@ -24,8 +21,12 @@ export default async function CostsPage({ searchParams }: { searchParams: Promis
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Costs</h1>
       <PlatformNav />
-      <DaysToggle base="/platform/costs" days={days === '30' ? 30 : 7} />
-      <CostTables data={data} />
+      <DaysToggle base="/platform/costs" days={days} />
+      <CostTables data={selectCosts(s, days)} />
     </div>
   );
+}
+
+export default function CostsPage() {
+  return <Suspense fallback={null}><Costs /></Suspense>;
 }

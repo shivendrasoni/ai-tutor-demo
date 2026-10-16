@@ -1,7 +1,6 @@
 'use client';
 
 import { useId, useMemo, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import type { UploadTargets } from '@/modules/content';
 import { AlertCircle, CheckCircle2, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,7 +24,6 @@ function errorText(status: number, code: string, details: Record<string, unknown
 }
 
 export default function UploadForm({ targets, mode }: Props) {
-  const router = useRouter();
   const uid = useId();
   const isTeacher = mode === 'teacher';
   const scopes = mode === 'school_admin' ? ['school', 'branch', 'section'] : ['branch', 'section'];
@@ -89,7 +87,6 @@ export default function UploadForm({ targets, mode }: Props) {
         setTitle('');
         setFile(null);
         setFileKey((k) => k + 1);
-        router.refresh();
         return;
       }
       let err: { code?: string; message?: string; details?: Record<string, unknown> } = {};

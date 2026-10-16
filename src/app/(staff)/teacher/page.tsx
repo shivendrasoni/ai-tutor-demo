@@ -1,42 +1,48 @@
+'use client';
+
+import { Suspense, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
 import NotAllowed from '../_components/NotAllowed';
 import PageHeading from '../_components/PageHeading';
 import { buttonVariants } from '@/components/ui/button';
 import { EmptyState } from '@/app/ui/components';
-import { DomainError } from '@/lib/errors';
-import { requirePageActor } from '@/lib/guard';
+import { useSlice } from '@/demo/core/store';
+import { useCurrentUser } from '@/demo/core/useCurrentUser';
+import { sectionProgress, studentUsage, teacherAssignments } from '@/demo/areas/teacher/logic';
+import type { TeacherSlice } from '@/demo/areas/teacher/fixtures';
 import ProgressGrid from './_components/ProgressGrid';
 import SectionSelector from './_components/SectionSelector';
 import UsageTable from './_components/UsageTable';
-import { loadTeacherDashboard } from './loaders';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Teacher · AI Tutor for Schools' };
+function Dashboard() {
+  const sp = useSearchParams();
+  const { user, core } = useCurrentUser();
+  const teacher = useSlice<TeacherSlice>('teacher');
+  const sectionId = sp.get('sectionId') || undefined;
+  const subjectId = sp.get('subjectId') || undefined;
 
-type Params = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const assignments = useMemo(() => (user ? teacherAssignments(core, teacher, user.id) : []), [core, teacher, user]);
 
-export default async function TeacherPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const actor = await requirePageActor(['teacher']);
-  const sp = await searchParams;
-
-  let data: Awaited<ReturnType<typeof loadTeacherDashboard>>;
-  try {
-    data = await loadTeacherDashboard(actor, { sectionId: one(sp.sectionId), subjectId: one(sp.subjectId) });
-  } catch (e) {
-    if (e instanceof DomainError && e.code === 'FORBIDDEN') return <NotAllowed />;
-    if (e instanceof DomainError && e.code === 'VALIDATION') {
-      return (
-        <div className="space-y-4">
-          <PageHeading title="Teacher" />
-          <EmptyState>{e.message}</EmptyState>
-          <Link href="/teacher" className={buttonVariants({ variant: 'outline' })}>Back to your classes</Link>
-        </div>
-      );
-    }
-    throw e;
+  if ((sectionId === undefined) !== (subjectId === undefined)) {
+    return (
+      <div className="space-y-4">
+        <PageHeading title="Teacher" />
+        <EmptyState>Choose both a section and a subject</EmptyState>
+        <Link href="/teacher" className={buttonVariants({ variant: 'outline' })}>Back to your classes</Link>
+      </div>
+    );
   }
+  let selected: { sectionId: string; subjectId: string } | null = null;
+  if (sectionId !== undefined && subjectId !== undefined) {
+    if (!assignments.some((a) => a.sectionId === sectionId && a.subjectId === subjectId)) return <NotAllowed />;
+    selected = { sectionId, subjectId };
+  } else if (assignments.length > 0) {
+    selected = { sectionId: assignments[0]!.sectionId, subjectId: assignments[0]!.subjectId };
+  }
+  const progress = selected ? sectionProgress(core, teacher, selected.sectionId, selected.subjectId) : null;
+  const usage = selected ? studentUsage(core, teacher, selected.sectionId) : [];
 
   return (
     <div className="space-y-6">
@@ -50,9 +56,17 @@ export default async function TeacherPage({ searchParams }: { searchParams: Prom
           </nav>
         }
       />
-      <SectionSelector assignments={data.assignments} selected={data.selected} />
-      {data.progress ? <ProgressGrid data={data.progress} /> : null}
-      {data.selected ? <UsageTable rows={data.usage} /> : null}
+      <SectionSelector assignments={assignments} selected={selected} />
+      {progress ? <ProgressGrid data={progress} /> : null}
+      {selected ? <UsageTable rows={usage} /> : null}
     </div>
+  );
+}
+
+export default function TeacherPage() {
+  return (
+    <Suspense fallback={null}>
+      <Dashboard />
+    </Suspense>
   );
 }

@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import type { ContentItemRow, IngestStatus } from '@/modules/content';
-// Direct import (not the module index) so the client bundle does not pull in server code.
-import { STUCK_INGEST_AFTER_MS } from '@/modules/content/stuck';
 import { AlertCircle, Eye, EyeOff, FileText, RotateCw, Trash2 } from 'lucide-react';
 import { Badge } from '@/app/ui/components';
 import { Button } from '@/components/ui/button';
 
 type Props = { initialItems: ContentItemRow[]; toggleBranchId: string | null };
 
+const STUCK_INGEST_AFTER_MS = 15 * 60_000;
 const POLL_MS = 3000;
 const LABEL: Record<IngestStatus, string> = {
   queued: 'Queued',

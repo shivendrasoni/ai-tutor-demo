@@ -1,11 +1,15 @@
+'use client';
+import { Suspense, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
 import NotAllowed from '../_components/NotAllowed';
 import PageHeading from '../_components/PageHeading';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, EmptyState } from '@/app/ui/components';
-import { requirePageActor } from '@/lib/guard';
-import { DomainError } from '@/lib/errors';
+import { useCurrentUser } from '@/demo/core/useCurrentUser';
+import { useSlice } from '@/demo/core/store';
+import { emptySchoolSlice, type SchoolSlice } from '@/demo/areas/school/queries';
 import AddStudentForm from './_components/AddStudentForm';
 import BranchCodes from './_components/BranchCodes';
 import EnrollmentCards from './_components/EnrollmentCards';
@@ -13,38 +17,46 @@ import EnrollmentTable from './_components/EnrollmentTable';
 import SetupSection from './_components/SetupSection';
 import StudentFilters from './_components/StudentFilters';
 import StudentsTable from './_components/StudentsTable';
-import { loadSchoolDashboard, loadSchoolSetup } from './loaders';
+import { loadSchoolDashboard, loadSchoolSetup, SchoolError } from './loaders';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'School · AI Tutor for Schools' };
+export default function SchoolPage() {
+  return (
+    <Suspense fallback={null}>
+      <SchoolDashboard />
+    </Suspense>
+  );
+}
 
-type Params = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+function SchoolDashboard() {
+  const { user, core } = useCurrentUser();
+  const school = useSlice<SchoolSlice>('school') ?? emptySchoolSlice();
+  const sp = useSearchParams();
+  const q = { branchId: sp.get('branchId') ?? undefined, grade: sp.get('grade') ?? undefined, status: sp.get('status') ?? undefined };
+  const schoolIdGiven = sp.get('schoolId') !== null;
 
-export default async function SchoolPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const actor = await requirePageActor(['school_admin', 'branch_admin']);
-  const sp = await searchParams;
-  const q = { branchId: one(sp.branchId), grade: one(sp.grade), status: one(sp.status) };
-  // schoolId is never a page parameter: a forced school scope is rejected, not ignored.
-  if (sp.schoolId !== undefined) return <NotAllowed />;
-
-  let data: Awaited<ReturnType<typeof loadSchoolDashboard>>;
-  let setup: Awaited<ReturnType<typeof loadSchoolSetup>>;
-  try {
-    [data, setup] = await Promise.all([loadSchoolDashboard(actor, q), loadSchoolSetup(actor)]);
-  } catch (e) {
-    if (e instanceof DomainError && e.code === 'FORBIDDEN') return <NotAllowed />;
-    if (e instanceof DomainError && e.code === 'VALIDATION') {
-      return (
-        <div className="space-y-4">
-          <PageHeading title="School" />
-          <EmptyState>{e.message}</EmptyState>
-          <Link href="/school" className={buttonVariants({ variant: 'outline' })}>Clear filters</Link>
-        </div>
-      );
+  const result = useMemo(() => {
+    if (schoolIdGiven) return { kind: 'forbidden' as const };
+    try {
+      return { kind: 'ok' as const, data: loadSchoolDashboard(core, school, user, q), setup: loadSchoolSetup(core, school, user) };
+    } catch (e) {
+      if (e instanceof SchoolError && e.code === 'FORBIDDEN') return { kind: 'forbidden' as const };
+      if (e instanceof SchoolError && e.code === 'VALIDATION') return { kind: 'invalid' as const, message: e.message };
+      throw e;
     }
-    throw e;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core, school, user, q.branchId, q.grade, q.status, schoolIdGiven]);
+
+  if (result.kind === 'forbidden') return <NotAllowed />;
+  if (result.kind === 'invalid') {
+    return (
+      <div className="space-y-4">
+        <PageHeading title="School" />
+        <EmptyState>{result.message}</EmptyState>
+        <Link href="/school" className={buttonVariants({ variant: 'outline' })}>Clear filters</Link>
+      </div>
+    );
   }
+  const { data, setup } = result;
 
   return (
     <div className="space-y-6">

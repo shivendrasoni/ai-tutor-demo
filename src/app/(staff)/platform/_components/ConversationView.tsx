@@ -1,7 +1,7 @@
 import { Flag } from 'lucide-react';
 import { Card } from '@/app/ui/components';
 import { cn } from '@/lib/utils';
-import type { MessageRow } from '@/modules/tutor/conversations';
+import type { MessageRow } from '@/demo/areas/platform/types';
 
 const ROLE: Record<string, string> = { user: 'Student', assistant: 'Tutor' };
 
@@ -25,7 +25,7 @@ export default function ConversationView({ messages, flaggedMessageId }: { messa
             >
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <strong>{ROLE[m.role] ?? m.role}</strong>
-                <small className="text-xs text-muted-foreground">{m.createdAt.toISOString()}</small>
+                <small className="text-xs text-muted-foreground">{m.createdAt.slice(0, 16).replace('T', ' ')} UTC</small>
                 {flagged ? (
                   <strong className="inline-flex items-center gap-1 text-destructive">
                     <Flag className="size-3.5" aria-hidden="true" />(flagged{m.flagReason ? `: ${m.flagReason}` : ''})

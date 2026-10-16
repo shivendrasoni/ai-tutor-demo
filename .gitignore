@@ -15,3 +15,4 @@ coverage
 .blob-test/
 .data/
 evals/reports/*.md
+/.next-*

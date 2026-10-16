@@ -104,6 +104,9 @@ export default function JoinFlow() {
         <CardContent className="grid gap-4">
           <p role="status" className="rounded-lg border border-success/30 bg-success/15 px-4 py-3 text-sm text-success">{SUCCESS_COPY}</p>
           <Button asChild size="lg" className="w-full">
+            <Link href="/status">View my account status</Link>
+          </Button>
+          <Button asChild size="lg" variant="outline" className="w-full">
             <Link href="/login">Go to log in</Link>
           </Button>
         </CardContent>

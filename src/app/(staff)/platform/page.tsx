@@ -1,21 +1,12 @@
+'use client';
 import { Card, Stat } from '@/app/ui/components';
 import { formatMoney } from '@/app/ui/format';
-import { requirePageActor } from '@/lib/guard';
+import { selectOverview } from '@/demo/areas/platform/selectors';
 import PlatformNav from './_components/PlatformNav';
-import { pageError } from './_components/PageError';
-import { loadOverview } from './loaders';
+import { usePlatform } from './_components/usePlatform';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Platform · AI Tutor for Schools' };
-
-export default async function PlatformPage() {
-  const actor = await requirePageActor(['platform']);
-  let o: Awaited<ReturnType<typeof loadOverview>>;
-  try {
-    o = await loadOverview(actor);
-  } catch (e) {
-    return pageError('Platform', e);
-  }
+export default function PlatformPage() {
+  const o = selectOverview(usePlatform());
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Platform</h1>

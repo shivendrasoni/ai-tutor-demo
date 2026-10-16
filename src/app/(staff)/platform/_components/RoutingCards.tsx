@@ -1,5 +1,5 @@
 import { Card, Stat } from '@/app/ui/components';
-import type { RoutingStats } from '@/modules/analytics';
+import type { RoutingStats } from '@/demo/areas/platform/types';
 
 export default function RoutingCards({ stats }: { stats: RoutingStats }) {
   return (

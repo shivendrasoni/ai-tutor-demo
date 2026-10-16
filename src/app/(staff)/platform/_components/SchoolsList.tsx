@@ -1,5 +1,5 @@
 import { Badge, Card, EmptyState } from '@/app/ui/components';
-import type { SchoolListing } from '@/modules/analytics';
+import type { SchoolListing } from '@/demo/areas/platform/types';
 
 export default function SchoolsList({ schools }: { schools: SchoolListing[] }) {
   if (schools.length === 0) return <Card title="Schools"><EmptyState>No schools yet</EmptyState></Card>;

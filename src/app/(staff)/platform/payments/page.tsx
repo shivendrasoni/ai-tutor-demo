@@ -1,25 +1,18 @@
-import { requirePageActor } from '@/lib/guard';
+'use client';
 import PaymentsTable from '../_components/PaymentsTable';
 import PlatformNav from '../_components/PlatformNav';
-import { pageError } from '../_components/PageError';
-import { loadPayments } from '../loaders';
+import RecentPayments from '../_components/RecentPayments';
+import { usePlatform } from '../_components/usePlatform';
+import { selectPending } from '@/demo/areas/platform/selectors';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Payments · AI Tutor for Schools' };
-
-export default async function PaymentsPage() {
-  const actor = await requirePageActor(['platform']);
-  let rows: Awaited<ReturnType<typeof loadPayments>>;
-  try {
-    rows = await loadPayments(actor);
-  } catch (e) {
-    return pageError('Payments', e);
-  }
+export default function PaymentsPage() {
+  const s = usePlatform();
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Payments</h1>
       <PlatformNav />
-      <PaymentsTable rows={rows} />
+      <PaymentsTable rows={selectPending(s)} />
+      <RecentPayments rows={s.payments} />
     </div>
   );
 }

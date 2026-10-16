@@ -1,6 +1,6 @@
 import { Card, DataTable } from '@/app/ui/components';
 import { formatMoney } from '@/app/ui/format';
-import type { Plan } from '@/modules/enrollment';
+import type { PlanOption as Plan } from '@/demo/areas/platform/types';
 
 export default function PlansList({ plans }: { plans: Plan[] }) {
   return (

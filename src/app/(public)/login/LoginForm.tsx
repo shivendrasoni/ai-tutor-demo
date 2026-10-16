@@ -8,6 +8,7 @@ import { TextField } from '../_lib/fields';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
+import PersonaQuickStart from './PersonaQuickStart';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -37,6 +38,7 @@ export default function LoginForm() {
   }
 
   return (
+    <div className="grid gap-6">
     <Card>
       <CardHeader>
         <h1 className="text-2xl font-semibold leading-tight">Log in</h1>
@@ -53,5 +55,7 @@ export default function LoginForm() {
         <Link href="/join" className="text-sm font-medium text-primary underline-offset-4 hover:underline">New student? Sign up with your school code</Link>
       </CardFooter>
     </Card>
+    <PersonaQuickStart />
+    </div>
   );
 }

@@ -2,7 +2,7 @@ import type * as React from 'react';
 import { Card } from '@/app/ui/components';
 import { EmptyState } from '@/app/ui/components';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { CostSummary } from '@/modules/analytics';
+import type { CostSummary } from '@/demo/areas/platform/types';
 
 const usd = (n: number) => `$${n.toFixed(4)}`;
 
@@ -40,11 +40,26 @@ export default function CostTables({ data }: { data: CostSummary }) {
           columns={[
             { header: 'School', cell: (r) => r.name },
             { header: 'Cost', cell: (r) => usd(r.cost), numeric: true },
-            { header: 'Tokens', cell: (r) => r.tokens, numeric: true },
+            { header: 'Tokens', cell: (r) => r.tokens.toLocaleString('en-US'), numeric: true },
             { header: 'Students', cell: (r) => r.students, numeric: true },
           ]}
         />
       </Card>
+      {data.byTier ? (
+        <Card title="By model tier">
+          <CostTable
+            rows={data.byTier}
+            empty="No usage in this window"
+            columns={[
+              { header: 'Tier', cell: (r) => r.tier },
+              { header: 'Model', cell: (r) => <code className="font-mono text-xs">{r.model}</code> },
+              { header: 'Cost', cell: (r) => usd(r.cost), numeric: true },
+              { header: 'Tokens', cell: (r) => r.tokens.toLocaleString('en-US'), numeric: true },
+              { header: 'Turns', cell: (r) => r.turns.toLocaleString('en-US'), numeric: true },
+            ]}
+          />
+        </Card>
+      ) : null}
       <Card title="By skill">
         <CostTable
           rows={data.bySkill}
@@ -52,7 +67,7 @@ export default function CostTables({ data }: { data: CostSummary }) {
           columns={[
             { header: 'Skill', cell: (r) => r.skillKey },
             { header: 'Cost', cell: (r) => usd(r.cost), numeric: true },
-            { header: 'Tokens', cell: (r) => r.tokens, numeric: true },
+            { header: 'Tokens', cell: (r) => r.tokens.toLocaleString('en-US'), numeric: true },
             { header: 'Turns', cell: (r) => r.turns, numeric: true },
           ]}
         />

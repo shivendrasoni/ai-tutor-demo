@@ -1,22 +1,13 @@
-import { requirePageActor } from '@/lib/guard';
+'use client';
 import CreateBranchForm from '../_components/CreateBranchForm';
 import CreateSchoolForm from '../_components/CreateSchoolForm';
 import SchoolsList from '../_components/SchoolsList';
 import PlatformNav from '../_components/PlatformNav';
-import { pageError } from '../_components/PageError';
-import { loadSchools } from '../loaders';
+import { usePlatform } from '../_components/usePlatform';
+import { selectSchools } from '@/demo/areas/platform/selectors';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Schools · AI Tutor for Schools' };
-
-export default async function SchoolsPage() {
-  const actor = await requirePageActor(['platform']);
-  let schools: Awaited<ReturnType<typeof loadSchools>>;
-  try {
-    schools = await loadSchools(actor);
-  } catch (e) {
-    return pageError('Schools', e);
-  }
+export default function SchoolsPage() {
+  const schools = selectSchools(usePlatform());
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Schools</h1>

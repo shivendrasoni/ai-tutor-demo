@@ -1,19 +1,26 @@
+'use client';
+
+import { useMemo } from 'react';
 import ContentList from '../../_components/ContentList';
 import NotAllowed from '../../_components/NotAllowed';
 import PageHeading from '../../_components/PageHeading';
 import { Card } from '@/app/ui/components';
 import UploadForm from '../../_components/UploadForm';
-import { requireStaffPageActor } from '../../_lib/actor';
-import { listContent, listUploadTargets } from '@/modules/content';
+import { useSlice } from '@/demo/core/store';
+import { useCurrentUser } from '@/demo/core/useCurrentUser';
+import { uploadTargets, visibleContent } from '@/demo/areas/teacher/logic';
+import type { TeacherSlice } from '@/demo/areas/teacher/fixtures';
+import type { ContentItemRow } from '@/modules/content';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Materials · AI Tutor for Schools' };
-
-export default async function TeacherMaterialsPage() {
-  const actor = await requireStaffPageActor();
-  if (!actor.roles.includes('teacher')) return <NotAllowed />;
-
-  const [items, targets] = await Promise.all([listContent(actor, {}), listUploadTargets(actor)]);
+export default function TeacherMaterialsPage() {
+  const { user, core } = useCurrentUser();
+  const teacher = useSlice<TeacherSlice>('teacher');
+  const items = useMemo(
+    () => (user?.role === 'teacher' ? (visibleContent(core, teacher, user) as unknown as ContentItemRow[]) : []),
+    [core, teacher, user],
+  );
+  const targets = useMemo(() => (user?.role === 'teacher' ? uploadTargets(core, teacher, user) : null), [core, teacher, user]);
+  if (!user || user.role !== 'teacher' || !targets) return <NotAllowed />;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

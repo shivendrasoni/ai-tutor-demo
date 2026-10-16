@@ -1,21 +1,20 @@
+'use client';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { requirePageActor } from '@/lib/guard';
 import ConversationView from '../../_components/ConversationView';
 import { pageError } from '../../_components/PageError';
 import PlatformNav from '../../_components/PlatformNav';
 import ReviewButton from '../../_components/ReviewButton';
-import { loadFlagged } from '../../loaders';
+import { usePlatform } from '../../_components/usePlatform';
+import { selectFlagged } from '@/demo/areas/platform/selectors';
 
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Flag · AI Tutor for Schools' };
-
-export default async function FlagPage({ params }: { params: Promise<{ messageId: string }> }) {
-  const actor = await requirePageActor(['platform']);
-  const { messageId } = await params;
-  let conv: Awaited<ReturnType<typeof loadFlagged>>;
+export default function FlagPage() {
+  const { messageId } = useParams<{ messageId: string }>();
+  const s = usePlatform();
+  let conv: ReturnType<typeof selectFlagged>;
   try {
-    conv = await loadFlagged(actor, messageId);
+    conv = selectFlagged(s, messageId);
   } catch (e) {
     return pageError('Flag', e);
   }

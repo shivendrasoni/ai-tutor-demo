@@ -58,3 +58,6 @@ Books are embedded with the configured `EMBEDDER`, so run the seed with the same
 ## Tests
 
 `pnpm vitest run` (unit and integration, needs the Docker Postgres), `pnpm e2e` (Playwright), `pnpm tsc --noEmit`. No test needs real keys.
+
+## UI-only demo (branch `demo/ui-only-prototype`)
+No DB, auth or LLM needed: `pnpm install && pnpm dev`, open http://localhost:3000. Use the floating "Viewing as" button to switch between student (grades 5/7/11, awaiting payment), teacher, branch admin, school admin and platform admin; "Reset demo data" restores the seed. State lives in your browser's localStorage. Code: `src/demo/`; tests: `pnpm test:demo`, `pnpm build && pnpm e2e:demo`.
